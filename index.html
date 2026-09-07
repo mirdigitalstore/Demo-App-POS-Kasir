@@ -1,0 +1,1522 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#ffffff" id="meta-theme-color">
+    <title>POS Offline Pro - Edisi Demo</title>
+    
+    <!-- Dynamic Font Link for UI & Courier Prime for Receipt -->
+    <link id="dynamic-font" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Courier+Prime:wght@400;700&display=swap">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Libraries -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: 'var(--primary)',
+                        'primary-light': 'var(--primary-light)',
+                        background: 'var(--background)',
+                        surface: 'var(--surface)',
+                        'surface-hover': 'var(--surface-hover)',
+                        text: 'var(--text)',
+                        muted: 'var(--muted)',
+                        border: 'var(--border)',
+                        success: '#10b981', danger: '#ef4444', warning: '#f59e0b', info: '#3b82f6'
+                    },
+                    fontFamily: {
+                        sans: ['var(--font-family)', 'system-ui', 'sans-serif'],
+                        receipt: ['"Courier Prime"', 'monospace'],
+                    },
+                    boxShadow: {
+                        'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)',
+                        'float': '0 10px 30px -5px rgba(0, 0, 0, 0.1)',
+                        'glow-primary': '0 0 20px var(--primary-light)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        :root {
+            --primary: #2563eb; --primary-light: rgba(37, 99, 235, 0.2);
+            --background: #f8fafc; --surface: #ffffff; --surface-hover: #f1f5f9;
+            --text: #0f172a; --muted: #64748b; --border: #e2e8f0;
+            --font-family: 'Inter', system-ui, sans-serif;
+            --safe-bottom: env(safe-area-inset-bottom, 0px);
+            --safe-top: env(safe-area-inset-top, 0px);
+        }
+
+        .dark {
+            --background: #0f172a; --surface: #1e293b; --surface-hover: #334155;
+            --text: #f8fafc; --muted: #94a3b8; --border: #334155;
+            --primary-light: rgba(37, 99, 235, 0.4);
+        }
+
+        body {
+            overscroll-behavior-y: none; -webkit-tap-highlight-color: transparent;
+            user-select: none; -webkit-user-select: none; touch-action: manipulation;
+        }
+        
+        input, textarea, select { user-select: auto; -webkit-user-select: auto; }
+
+        .view-container {
+            display: none; opacity: 0;
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
+            transform: scale(0.98) translateY(10px);
+            transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+        }
+        .view-container.active { display: block; opacity: 1; transform: scale(1) translateY(0); z-index: 10; }
+
+        .btn-press { transition: all 0.15s ease; }
+        .btn-press:active:not(:disabled) { transform: scale(0.95); opacity: 0.8; }
+
+        .modal-backdrop { opacity: 0; pointer-events: none; transition: opacity 0.2s ease; }
+        .modal-backdrop.active { opacity: 1; pointer-events: auto; z-index: 60; }
+        .modal-content { transform: translateY(100%); transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.1); }
+        .modal-backdrop.active .modal-content { transform: translateY(0); }
+
+        input[type="checkbox"] { appearance: none; -webkit-appearance: none; background-color: var(--surface); margin: 0; font: inherit; color: currentColor; width: 1.15em; height: 1.15em; border: 2px solid var(--border); border-radius: 0.25em; display: grid; place-content: center; }
+        input[type="checkbox"]::before { content: ""; width: 0.65em; height: 0.65em; transform: scale(0); transition: 120ms transform ease-in-out; box-shadow: inset 1em 1em white; background-color: white; transform-origin: center; clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%); }
+        input[type="checkbox"]:checked { background-color: var(--primary); border-color: var(--primary); }
+        input[type="checkbox"]:checked::before { transform: scale(1); }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+        .qr-thumb img { width: 100%; height: 100%; object-fit: contain; border-radius: 4px; }
+
+        #print-area, #print-qr-area { display: none; }
+        @media print {
+            body * { visibility: hidden; }
+            header, main, nav, .modal-backdrop, #toast-container { display: none !important; }
+            .active-print, .active-print * { visibility: visible !important; }
+            .active-print { display: block !important; position: absolute; left: 0; top: 0; width: 100%; color: black !important; background: white !important; }
+            .no-print { display: none !important; }
+        }
+
+        /* --- GUIDED TOUR CSS --- */
+        #tour-overlay { position: fixed; inset: 0; background: transparent; z-index: 9998; pointer-events: auto; display: none; }
+        #tour-focus-ring { 
+            position: fixed; border: 3px solid var(--primary); border-radius: 12px; 
+            box-shadow: 0 0 0 9999px rgba(0,0,0,0.75), 0 0 20px var(--primary); 
+            z-index: 9999; pointer-events: none; display: none; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); 
+        }
+        #tour-tooltip { 
+            position: fixed; z-index: 10000; width: 300px; max-width: 90vw; background: var(--surface); 
+            color: var(--text); padding: 20px; border-radius: 16px; border: 1px solid var(--border);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3); transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); 
+            opacity: 0; transform: translateY(10px); display: none; flex-direction: column; 
+        }
+        #tour-tooltip.active { opacity: 1; transform: translateY(0); display: flex; }
+        /* Pointer Arrow */
+        #tour-tooltip::after { content: ''; position: absolute; border-style: solid; }
+        #tour-tooltip[data-place="top"]::after { bottom: -8px; left: 50%; transform: translateX(-50%); border-width: 8px 8px 0; border-color: var(--surface) transparent transparent transparent; }
+        #tour-tooltip[data-place="bottom"]::after { top: -8px; left: 50%; transform: translateX(-50%); border-width: 0 8px 8px; border-color: transparent transparent var(--surface) transparent; }
+        
+        .pulse-tour { animation: tourPulse 2s infinite; }
+        @keyframes tourPulse { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(var(--primary-rgb), 0.7); } 70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(var(--primary-rgb), 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(var(--primary-rgb), 0); } }
+    </style>
+</head>
+<body class="bg-background text-text h-screen w-screen overflow-hidden flex flex-col font-sans transition-colors duration-300 relative">
+
+    <!-- App Header -->
+    <header class="h-16 px-4 pt-[var(--safe-top)] flex items-center justify-between bg-surface shadow-sm z-20 relative border-b border-border no-print flex-shrink-0">
+        <div class="flex items-center gap-3">
+            <div id="store-logo-header" class="w-8 h-8 rounded-lg bg-primary text-white flex items-center justify-center font-bold text-sm overflow-hidden shadow-glow-primary">
+                <span id="store-logo-text">POS</span>
+                <img id="store-logo-img" src="" class="hidden w-full h-full object-cover">
+            </div>
+            <div>
+                <h1 id="store-name-header" class="font-bold text-lg tracking-tight truncate max-w-[150px] leading-tight">POS Pro</h1>
+                <span class="text-[9px] font-black bg-warning/20 text-warning px-1.5 py-0.5 rounded-sm uppercase tracking-widest inline-block mt-0.5">Versi Demo</span>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="app.tour.start()" class="p-2 rounded-full bg-info/10 text-info btn-press relative" title="Mulai Panduan" id="btn-help-tour">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            </button>
+            <div id="network-status" class="px-3 py-1.5 rounded-full bg-success/10 text-success text-[10px] font-bold flex items-center gap-1.5">
+                <div class="w-1.5 h-1.5 rounded-full bg-success animate-pulse"></div> ONLINE
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main id="app-main" class="flex-1 relative w-full h-full bg-background no-print">
+        
+        <!-- DASHBOARD VIEW -->
+        <div id="view-dashboard" class="view-container active p-4 space-y-4">
+            <div class="flex justify-between items-end mb-2" id="tour-step-dashboard-greeting">
+                <div>
+                    <h2 class="text-2xl font-black text-primary" id="dash-greeting">Halo, Kasir!</h2>
+                    <p class="text-muted text-xs font-bold mt-0.5" id="dash-date">Senin, 1 Jan 2024</p>
+                </div>
+                <div class="text-right">
+                    <div class="text-lg font-black font-mono text-text bg-surface px-2 py-1 rounded-lg border border-border shadow-sm" id="dash-time">00:00</div>
+                </div>
+            </div>
+
+            <!-- Omzet Grid -->
+            <div class="grid grid-cols-2 gap-3" id="tour-step-dashboard-stats">
+                <div class="bg-gradient-to-br from-blue-600 to-blue-500 text-white p-3 rounded-2xl shadow-sm relative overflow-hidden">
+                    <svg class="w-16 h-16 absolute -right-2 -top-2 opacity-10" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                    <div class="text-white/80 text-[10px] font-bold mb-1 uppercase tracking-wider relative z-10">Omzet Hari Ini</div>
+                    <div class="text-lg font-black relative z-10 drop-shadow-md truncate" id="dash-omzet-day">Rp0</div>
+                </div>
+                <div class="bg-gradient-to-br from-indigo-600 to-indigo-500 text-white p-3 rounded-2xl shadow-sm relative overflow-hidden">
+                    <svg class="w-16 h-16 absolute -right-2 -top-2 opacity-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    <div class="text-white/80 text-[10px] font-bold mb-1 uppercase tracking-wider relative z-10">Bulan Ini</div>
+                    <div class="text-lg font-black relative z-10 drop-shadow-md truncate" id="dash-omzet-month">Rp0</div>
+                </div>
+                <div class="bg-gradient-to-br from-purple-600 to-purple-500 text-white p-3 rounded-2xl shadow-sm relative overflow-hidden">
+                    <svg class="w-16 h-16 absolute -right-2 -top-2 opacity-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                    <div class="text-white/80 text-[10px] font-bold mb-1 uppercase tracking-wider relative z-10">Tahun Ini</div>
+                    <div class="text-lg font-black relative z-10 drop-shadow-md truncate" id="dash-omzet-year">Rp0</div>
+                </div>
+                <div class="bg-gradient-to-br from-pink-500 to-rose-500 text-white p-3 rounded-2xl shadow-sm relative overflow-hidden">
+                    <svg class="w-16 h-16 absolute -right-2 -bottom-2 opacity-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                    <div class="text-white/80 text-[10px] font-bold mb-1 uppercase tracking-wider relative z-10">Total Transaksi</div>
+                    <div class="text-lg font-black relative z-10 drop-shadow-md truncate" id="dash-trx-total">0</div>
+                </div>
+            </div>
+
+            <!-- Recent Transactions -->
+            <div class="bg-surface rounded-2xl shadow-sm border border-border p-4">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="font-black text-sm flex items-center gap-2">
+                        <div class="p-1 bg-info/10 text-info rounded-md"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></div>
+                        Transaksi Terbaru
+                    </h3>
+                    <button onclick="app.navigate('history')" class="text-primary text-[10px] font-bold btn-press uppercase tracking-wider">Lihat Semua</button>
+                </div>
+                <div id="dash-recent-list" class="space-y-2"></div>
+            </div>
+
+            <!-- Stok Menipis -->
+            <div class="bg-surface rounded-2xl shadow-sm border border-border p-4" id="tour-step-dashboard-stock">
+                <h3 class="font-black text-sm mb-3 flex items-center gap-2">
+                    <div class="p-1 bg-danger/10 text-danger rounded-md"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg></div>
+                    Stok Menipis
+                </h3>
+                <div id="dash-low-stock" class="space-y-2 pb-2"></div>
+            </div>
+
+            <div class="h-32 w-full flex-shrink-0"></div>
+        </div>
+
+        <!-- PRODUCTS VIEW -->
+        <div id="view-products" class="view-container bg-surface">
+            <div class="sticky top-0 bg-surface/90 backdrop-blur px-4 py-3 z-10 border-b border-border flex flex-col gap-3">
+                <div class="flex gap-2">
+                    <div class="relative flex-1" id="tour-step-product-search">
+                        <svg class="w-5 h-5 absolute left-3 top-2.5 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        <input type="text" id="search-product" placeholder="Cari nama atau scan..." class="w-full bg-background border border-border rounded-xl pl-10 pr-4 py-2 text-sm focus:outline-none focus:border-primary transition-colors font-medium">
+                    </div>
+                    <button onclick="app.products.showAddModal()" class="bg-primary text-white p-2 rounded-xl btn-press shadow-sm flex items-center justify-center w-10" id="tour-step-product-add">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                    </button>
+                </div>
+                <!-- Inline Action Panel for Products -->
+                <div class="flex justify-between items-center bg-background/50 rounded-lg p-2 min-h-[40px] relative overflow-hidden border border-border/50" id="tour-step-product-actions">
+                    <label class="flex items-center gap-2 text-sm font-bold text-text cursor-pointer relative z-10">
+                        <input type="checkbox" id="check-all-products" onchange="app.products.toggleAll(this)">
+                        <span id="product-select-text" class="transition-all duration-200">Pilih Semua</span>
+                    </label>
+                    <div id="product-actions" class="absolute right-2 flex gap-2 transition-all duration-200 opacity-0 translate-x-8 pointer-events-none z-10">
+                        <button onclick="app.products.confirmDeleteSelected()" class="bg-danger/10 text-danger px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 btn-press shadow-sm hover:bg-danger/20 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg> Hapus</button>
+                        <button onclick="app.products.printQR()" class="bg-primary text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 btn-press shadow-sm hover:bg-primary-light transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg> Cetak QR</button>
+                    </div>
+                </div>
+            </div>
+            <div id="product-list" class="p-4 space-y-3"></div>
+            <div class="h-32 w-full flex-shrink-0"></div>
+        </div>
+
+        <!-- CASHIER VIEW -->
+        <div id="view-cashier" class="view-container bg-surface">
+            <div class="sticky top-0 p-3 border-b border-border flex gap-2 z-20 bg-surface shadow-sm">
+                <div class="relative flex-1">
+                    <svg class="w-5 h-5 absolute left-3 top-2.5 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    <input type="text" id="pos-search" placeholder="Cari produk..." class="w-full bg-background border border-border rounded-xl pl-10 pr-4 py-2 text-sm focus:outline-none focus:border-primary font-medium">
+                </div>
+                <button onclick="app.scanner.start()" class="bg-primary text-white px-4 rounded-xl btn-press shadow-sm flex items-center gap-2 text-sm font-bold" id="tour-step-cashier-scan">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path></svg>
+                    Scan
+                </button>
+            </div>
+
+            <div class="p-3 bg-background min-h-[65vh]" id="pos-product-grid"></div>
+            
+            <div class="sticky bottom-[calc(5.5rem+var(--safe-bottom))] left-0 w-full bg-surface border-t border-border p-4 shadow-[0_-8px_20px_rgba(0,0,0,0.08)] z-[35]" id="cart-bottom-panel">
+                <div class="flex justify-between items-center mb-2">
+                    <div class="text-xs font-bold text-muted uppercase tracking-wider">Total (<span id="cart-count">0</span> item)</div>
+                    <div class="text-xl font-black text-primary" id="cart-total">Rp0</div>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="app.cart.showDetails()" class="flex-1 border border-border bg-background py-3 rounded-xl font-bold btn-press text-text hover:bg-surface-hover transition-colors">Detail</button>
+                    <button onclick="app.cart.processPayment()" id="btn-pay" disabled class="flex-[2] bg-primary text-white py-3 rounded-xl font-black shadow-glow-primary btn-press disabled:opacity-50 disabled:shadow-none uppercase tracking-wide">Bayar</button>
+                </div>
+            </div>
+            <div class="h-[calc(10rem+var(--safe-bottom))] w-full flex-shrink-0 bg-background"></div>
+        </div>
+
+        <!-- HISTORY VIEW -->
+        <div id="view-history" class="view-container bg-surface">
+            <div class="p-4 border-b border-border bg-surface/90 backdrop-blur sticky top-0 z-10 flex flex-col gap-3">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-xl font-black">Riwayat Transaksi</h2>
+                </div>
+                <div class="flex justify-between items-center gap-2" id="tour-step-history-filter">
+                    <div class="flex gap-2 flex-1">
+                        <select id="hist-filter" onchange="app.history.filterMethod = this.value; app.history.render()" class="bg-background border border-border rounded-lg px-2 py-1.5 text-xs font-bold focus:outline-none text-text flex-1">
+                            <option value="ALL">Semua Pembayaran</option>
+                            <option value="CASH">Tunai</option>
+                            <option value="QRIS">QRIS</option>
+                            <option value="TRANSFER">Transfer</option>
+                        </select>
+                        <select id="hist-sort" onchange="app.history.sortOrder = this.value; app.history.render()" class="bg-background border border-border rounded-lg px-2 py-1.5 text-xs font-bold focus:outline-none text-text">
+                            <option value="NEWEST">Terbaru</option>
+                            <option value="OLDEST">Terlama</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex justify-between items-center bg-background/50 rounded-lg p-2 min-h-[40px] relative overflow-hidden border border-border/50">
+                    <label class="flex items-center gap-2 text-sm font-bold text-text cursor-pointer relative z-10">
+                        <input type="checkbox" id="check-all-history" onchange="app.history.toggleAll(this)">
+                        <span id="history-select-text" class="transition-all duration-200">Pilih Semua</span>
+                    </label>
+                    <div id="history-actions" class="absolute right-2 flex gap-2 transition-all duration-200 opacity-0 translate-x-8 pointer-events-none z-10">
+                        <button onclick="app.history.confirmDeleteSelected()" class="bg-danger/10 text-danger px-4 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 btn-press shadow-sm hover:bg-danger/20 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg> Hapus Terpilih</button>
+                    </div>
+                </div>
+            </div>
+            <div id="history-list" class="p-4 space-y-3"></div>
+            <div class="h-32 w-full flex-shrink-0"></div>
+        </div>
+
+        <!-- SETTINGS VIEW -->
+        <div id="view-settings" class="view-container bg-background">
+            <div class="p-4 space-y-5">
+                
+                <!-- Demo Badge -->
+                <div class="bg-warning/10 border border-warning/30 p-4 rounded-2xl flex items-start gap-3" id="tour-step-settings-demo">
+                    <div class="p-2 bg-warning rounded-full text-white mt-0.5">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-sm text-warning">Versi Demo Aktif</h4>
+                        <p class="text-xs text-muted mt-1 leading-relaxed">Anda menggunakan versi demo. Untuk menjaga stabilitas simulasi, input data dibatasi maksimal 3 produk dan 3 transaksi. Untuk versi tanpa batas, silakan gunakan Versi Penuh.</p>
+                        <div class="mt-2 flex gap-4 text-xs font-bold text-text">
+                            <div>Produk Baru: <span id="demo-prod-count" class="text-primary">0</span>/3</div>
+                            <div>Transaksi Baru: <span id="demo-trx-count" class="text-primary">0</span>/3</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Store Profile -->
+                <div class="bg-surface p-4 rounded-2xl shadow-soft border border-border">
+                    <h3 class="font-black text-sm mb-4 flex items-center gap-2">
+                        <div class="p-1.5 bg-primary/10 text-primary rounded-md"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg></div>
+                        Identitas Toko
+                    </h3>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs text-muted mb-1 font-medium">Nama Toko</label>
+                            <input type="text" id="setting-store-name" class="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm focus:border-primary focus:outline-none transition-colors font-bold">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-muted mb-1 font-medium">Alamat & Keterangan</label>
+                            <textarea id="setting-store-address" rows="2" class="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm focus:border-primary focus:outline-none transition-colors"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-muted mb-1 font-medium">Pesan Penutup (Footer Struk)</label>
+                            <textarea id="setting-store-footer" rows="2" placeholder="Terima Kasih atas kunjungan Anda..." class="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm focus:border-primary focus:outline-none transition-colors"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-muted mb-1 font-medium">Logo Toko (Opsional)</label>
+                            <input type="file" id="setting-store-logo" accept="image/*" class="w-full text-sm file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-primary-light file:text-primary hover:file:bg-primary/20 transition-colors">
+                            <img id="setting-logo-preview" class="mt-3 h-16 rounded-lg hidden object-cover border border-border">
+                        </div>
+                        <div class="pt-2 border-t border-border">
+                            <label class="block text-xs font-bold text-muted mb-2">Sosial Media & QR Struk</label>
+                            <div class="grid grid-cols-2 gap-3 mb-3">
+                                <div><label class="block text-[10px] text-muted mb-1">WhatsApp</label><input type="text" id="setting-wa" placeholder="08..." class="w-full bg-background border border-border rounded-lg px-2.5 py-2 text-xs focus:border-primary focus:outline-none transition-colors"></div>
+                                <div><label class="block text-[10px] text-muted mb-1">Instagram</label><input type="text" id="setting-ig" placeholder="@..." class="w-full bg-background border border-border rounded-lg px-2.5 py-2 text-xs focus:border-primary focus:outline-none transition-colors"></div>
+                                <div class="col-span-2"><label class="block text-[10px] text-muted mb-1">Facebook</label><input type="text" id="setting-fb" placeholder="Nama FB..." class="w-full bg-background border border-border rounded-lg px-2.5 py-2 text-xs focus:border-primary focus:outline-none transition-colors"></div>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-muted mb-1">Isi QR Code Footer (Opsional)</label>
+                                <input type="text" id="setting-footer-qr" placeholder="Link Sosmed / Teks Bebas..." class="w-full bg-background border border-border rounded-lg px-2.5 py-2 text-xs focus:border-primary focus:outline-none transition-colors">
+                            </div>
+                        </div>
+                        <button onclick="app.settings.saveProfile()" class="w-full bg-primary text-white py-2.5 rounded-xl font-bold btn-press shadow-sm mt-2">Simpan Profil</button>
+                    </div>
+                </div>
+
+                <!-- Appearance & Font -->
+                <div class="bg-surface p-4 rounded-2xl shadow-soft border border-border" id="tour-step-settings-theme">
+                    <h3 class="font-black text-sm mb-4 flex items-center gap-2">
+                        <div class="p-1.5 bg-primary/10 text-primary rounded-md"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path></svg></div>
+                        Tampilan & Teks
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-xs text-muted mb-2 font-medium">Tema Warna (12 Pilihan)</label>
+                            <div class="grid grid-cols-6 gap-2" id="theme-grid"></div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs text-muted mb-1 font-medium">Mode Layar</label>
+                                <select id="setting-dark-mode" onchange="app.settings.setDarkMode(this.value)" class="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm focus:border-primary focus:outline-none transition-colors font-bold">
+                                    <option value="system">Sistem</option>
+                                    <option value="light">Terang</option>
+                                    <option value="dark">Gelap</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs text-muted mb-1 font-medium">Font Aplikasi (50+)</label>
+                                <select id="setting-font-family" onchange="app.settings.setFont(this.value)" class="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm focus:border-primary focus:outline-none transition-colors font-bold">
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reset Demo Data -->
+                <div class="bg-surface p-4 rounded-2xl shadow-soft border border-border text-center">
+                    <button onclick="app.backup.confirmResetData()" class="w-full border border-danger/30 bg-danger/10 text-danger py-2.5 rounded-xl font-bold btn-press text-xs flex items-center justify-center gap-2 mb-3">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        Reset Data Demo
+                    </button>
+                    <button onclick="app.tour.start(true)" class="w-full bg-info/10 text-info py-2.5 rounded-xl font-bold btn-press text-xs flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        Ulangi Panduan (Tour)
+                    </button>
+                </div>
+            </div>
+            <div class="h-32 w-full flex-shrink-0"></div>
+        </div>
+
+    </main>
+
+    <!-- Bottom Navigation -->
+    <nav class="fixed bottom-0 left-0 w-full bg-surface/95 backdrop-blur-md border-t border-border pb-[var(--safe-bottom)] z-40 no-print shadow-[0_-4px_20px_rgba(0,0,0,0.02)]">
+        <div class="flex justify-around items-center h-16 px-2">
+            <button onclick="app.navigate('dashboard')" class="nav-btn w-full h-full flex flex-col items-center justify-center text-muted gap-1 btn-press active-nav" data-target="dashboard" id="tour-step-nav-dash">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+                <span class="text-[10px] font-bold">Beranda</span>
+            </button>
+            <button onclick="app.navigate('products')" class="nav-btn w-full h-full flex flex-col items-center justify-center text-muted gap-1 btn-press" data-target="products" id="tour-step-nav-prod">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                <span class="text-[10px] font-bold">Produk</span>
+            </button>
+            <button onclick="app.navigate('cashier')" class="nav-btn w-full h-full flex flex-col items-center justify-center text-muted btn-press relative group" data-target="cashier" id="tour-step-nav-cash">
+                <div class="absolute top-[-22px] bg-primary text-white p-3.5 rounded-full shadow-glow-primary border-4 border-background transition-transform group-active:scale-95">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                </div>
+                <span class="text-[10px] font-bold mt-8">Kasir</span>
+            </button>
+            <button onclick="app.navigate('history')" class="nav-btn w-full h-full flex flex-col items-center justify-center text-muted gap-1 btn-press" data-target="history" id="tour-step-nav-hist">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span class="text-[10px] font-bold">Riwayat</span>
+            </button>
+            <button onclick="app.navigate('settings')" class="nav-btn w-full h-full flex flex-col items-center justify-center text-muted gap-1 btn-press" data-target="settings" id="tour-step-nav-set">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                <span class="text-[10px] font-bold">Atur</span>
+            </button>
+        </div>
+        <style> .active-nav { color: var(--primary); } </style>
+    </nav>
+
+    <!-- Global Toast -->
+    <div id="toast-container" class="fixed top-5 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 w-[90%] max-w-sm pointer-events-none no-print"></div>
+
+    <!-- Guided Tour Overlay & Elements -->
+    <div id="tour-overlay"></div>
+    <div id="tour-focus-ring"></div>
+    <div id="tour-tooltip" data-place="bottom">
+        <div class="flex justify-between items-center mb-2">
+            <span class="text-[10px] font-black uppercase tracking-wider text-primary bg-primary-light px-2 py-0.5 rounded" id="tour-step-indicator">Langkah 1/5</span>
+            <button onclick="app.tour.close()" class="text-muted hover:text-danger btn-press"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+        <h3 class="font-black text-lg text-text mb-1" id="tour-title">Judul</h3>
+        <p class="text-sm font-medium text-muted mb-4 leading-relaxed" id="tour-desc">Deskripsi</p>
+        <div class="flex items-center justify-between gap-2 mt-auto">
+            <button onclick="app.tour.close()" class="text-xs font-bold text-muted btn-press">Lewati</button>
+            <div class="flex gap-2">
+                <button onclick="app.tour.prev()" id="tour-btn-prev" class="px-4 py-2 rounded-xl font-bold bg-background text-text border border-border btn-press hidden">Kembali</button>
+                <button onclick="app.tour.next()" id="tour-btn-next" class="px-5 py-2 rounded-xl font-bold bg-primary text-white shadow-glow-primary btn-press">Lanjut</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Welcome Tour Modal -->
+    <div id="modal-welcome-tour" class="modal-backdrop fixed inset-0 bg-black/80 z-[110] flex items-center justify-center no-print backdrop-blur-sm">
+        <div class="modal-content w-[85%] max-w-sm bg-surface rounded-3xl p-6 text-center shadow-2xl border-4 border-primary/20">
+            <div class="w-16 h-16 bg-primary/10 text-primary rounded-full flex items-center justify-center mx-auto mb-4 pulse-tour">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            </div>
+            <h3 class="font-black text-xl mb-2 text-text">Selamat Datang di Demo!</h3>
+            <p class="text-sm font-medium text-muted mb-6 leading-relaxed">Aplikasi ini sudah diisi dengan data contoh. Mari ikuti panduan singkat untuk melihat cara kerjanya secara langsung.</p>
+            <div class="flex flex-col gap-3">
+                <button onclick="app.ui.closeModal('modal-welcome-tour'); app.tour.startProcess();" class="w-full py-3.5 rounded-xl font-black bg-primary text-white shadow-glow-primary btn-press text-sm uppercase tracking-wide">Mulai Panduan</button>
+                <button onclick="app.tour.skipWelcome()" class="w-full py-3 rounded-xl font-bold bg-background text-muted border border-border btn-press text-sm">Lewati Saja</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Product Modal (Manual & CSV Tabs) -->
+    <div id="modal-product" class="modal-backdrop fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center no-print">
+        <div class="modal-content w-full sm:w-[400px] bg-surface rounded-t-3xl sm:rounded-3xl h-[85vh] sm:h-auto flex flex-col shadow-2xl">
+            <div class="p-4 border-b border-border flex justify-between items-center bg-surface rounded-t-3xl">
+                <h3 class="font-black text-lg" id="modal-product-title">Tambah Produk</h3>
+                <button onclick="app.ui.closeModal('modal-product')" class="p-1.5 btn-press bg-background rounded-full text-muted"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+            </div>
+            <div class="flex border-b border-border text-sm font-bold bg-surface" id="product-tabs">
+                <button onclick="app.products.switchTab('manual')" id="tab-btn-manual" class="flex-1 py-3 text-primary border-b-2 border-primary transition-colors">Manual</button>
+                <button onclick="app.products.switchTab('csv')" id="tab-btn-csv" class="flex-1 py-3 text-muted border-b-2 border-transparent transition-colors">Import Teks</button>
+            </div>
+
+            <!-- Manual Form -->
+            <div id="tab-manual" class="p-5 overflow-y-auto flex-1 space-y-4 hidden active-tab block">
+                <input type="hidden" id="prod-id">
+                <div>
+                    <label class="block text-xs font-bold text-muted mb-1.5">Nama Produk *</label>
+                    <input type="text" id="prod-name" class="w-full bg-background border border-border rounded-xl px-4 py-3 text-sm focus:border-primary focus:outline-none transition-all font-bold" required>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-muted mb-1.5">Harga (Rp) *</label>
+                        <input type="number" id="prod-price" class="w-full bg-background border border-border rounded-xl px-4 py-3 text-sm focus:border-primary focus:outline-none transition-all font-black text-primary" required>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-muted mb-1.5">Stok Awal</label>
+                        <input type="number" id="prod-stock" value="0" class="w-full bg-background border border-border rounded-xl px-4 py-3 text-sm focus:border-primary focus:outline-none transition-all font-bold">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-muted mb-1.5">QR / Barcode</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="prod-qr" class="flex-1 bg-background border border-border rounded-xl px-4 py-3 text-sm focus:border-primary focus:outline-none transition-all font-mono" placeholder="Scan atau ketik...">
+                        <button onclick="app.products.generateRandomQR()" class="bg-primary-light text-primary px-3 rounded-xl text-xs font-bold btn-press whitespace-nowrap">Auto Buat</button>
+                    </div>
+                </div>
+                <div id="qr-preview-container" class="hidden flex-col items-center justify-center p-4 bg-background rounded-2xl border-2 border-border border-dashed mt-2">
+                    <div id="qrcode-render" class="bg-white p-2 rounded-xl shadow-sm"></div>
+                    <span class="text-xs font-mono font-bold text-muted mt-3" id="qr-text-render"></span>
+                </div>
+            </div>
+
+            <!-- CSV Form -->
+            <div id="tab-csv" class="p-5 overflow-y-auto flex-1 space-y-4 hidden">
+                <div class="bg-warning/10 p-3 rounded-xl border border-warning/20 text-xs text-warning font-medium leading-relaxed">
+                    <b>Batas Demo:</b> Hanya bisa import maksimal 3 produk. Format: <b>Nama, Harga, Stok</b>.<br>QR Code dibuat otomatis.
+                </div>
+                <textarea id="prod-csv-input" rows="8" class="w-full bg-background border border-border rounded-xl px-4 py-3 text-sm focus:border-primary focus:outline-none transition-all font-mono leading-relaxed" placeholder="Contoh:&#10;Minyak Goreng, 15000, 20&#10;Gula Pasir, 12000, 15&#10;Kopi Hitam, 5000, 50"></textarea>
+            </div>
+
+            <div class="p-5 border-t border-border bg-surface flex gap-3">
+                <button id="btn-save-prod" onclick="app.products.saveProduct()" class="flex-1 bg-primary text-white py-3 rounded-xl font-bold btn-press shadow-glow-primary">Simpan</button>
+            </div>
+            <style> #tab-manual.active-tab { display: block; } #tab-csv.active-tab { display: block; } </style>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal Custom -->
+    <div id="modal-confirm" class="modal-backdrop fixed inset-0 bg-black/60 z-[90] flex items-center justify-center no-print backdrop-blur-sm">
+        <div class="modal-content w-[85%] max-w-sm bg-surface rounded-3xl p-6 text-center shadow-2xl">
+            <div class="w-16 h-16 bg-danger/10 text-danger rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            </div>
+            <h3 class="font-black text-lg mb-2 text-text" id="confirm-title">Konfirmasi</h3>
+            <p class="text-sm font-medium text-muted mb-6" id="confirm-msg">Apakah Anda yakin?</p>
+            <div class="flex gap-3">
+                <button onclick="app.ui.closeModal('modal-confirm')" class="flex-1 py-3 rounded-xl font-bold bg-background text-text border border-border btn-press">Batal</button>
+                <button id="confirm-yes-btn" class="flex-1 py-3 rounded-xl font-bold bg-danger text-white shadow-sm btn-press">Ya, Lanjutkan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scanner Modal (Full Screen) -->
+    <div id="modal-scanner" class="fixed inset-0 bg-black z-[60] hidden flex-col no-print transform translate-y-full transition-transform duration-200">
+        <div class="h-16 px-4 flex justify-between items-center text-white bg-gradient-to-b from-black/80 to-transparent absolute top-0 left-0 w-full z-10 pt-[var(--safe-top)]">
+            <h3 class="font-bold">Scan Produk</h3>
+            <button onclick="app.scanner.stop()" class="p-2 bg-white/20 rounded-full btn-press backdrop-blur"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+        
+        <div class="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
+            <div id="scanner-container" class="w-full h-full max-h-full object-cover"></div>
+            <!-- Overlay -->
+            <div class="absolute inset-0 pointer-events-none flex items-center justify-center">
+                <div class="w-64 h-64 border-2 border-primary rounded-3xl relative overflow-hidden shadow-[0_0_0_4000px_rgba(0,0,0,0.5)]">
+                    <div class="w-full h-1 bg-primary shadow-[0_0_15px_var(--primary)] absolute top-1/2 left-0 animate-[scanLine_2s_linear_infinite]"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-surface rounded-t-3xl p-5 shadow-[0_-10px_40px_rgba(0,0,0,0.3)] z-10 relative pb-[calc(1.25rem+var(--safe-bottom))]">
+            <div class="flex justify-between items-center mb-3">
+                <div>
+                    <div class="text-sm font-medium text-muted">Total Dikeranjang:</div>
+                    <div class="text-xl font-black text-primary"><span id="scan-count">0</span> Item</div>
+                </div>
+                <button onclick="app.scanner.stop()" class="bg-primary text-white px-8 py-3 rounded-xl font-black btn-press shadow-float">SELESAI</button>
+            </div>
+            <div id="scan-preview-list" class="max-h-24 overflow-y-auto space-y-1 text-sm border-t border-border pt-2 font-medium">
+                <div class="text-muted italic text-xs text-center py-2">Arahkan kamera ke QR/Barcode...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cart Details & Payment Modal -->
+    <div id="modal-cart" class="modal-backdrop fixed inset-0 bg-black/60 z-[55] flex items-end justify-center no-print backdrop-blur-sm">
+        <div class="modal-content w-full sm:w-[500px] bg-surface rounded-t-3xl h-[90vh] flex flex-col shadow-2xl">
+            <div class="p-5 border-b border-border flex justify-between items-center">
+                <h3 class="font-black text-lg">Pembayaran</h3>
+                <button onclick="app.ui.closeModal('modal-cart')" class="p-1.5 btn-press bg-background rounded-full"><svg class="w-5 h-5 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+            </div>
+            
+            <div class="flex-1 overflow-y-auto p-4 bg-background" id="cart-detail-list"></div>
+
+            <div class="p-5 bg-surface border-t border-border pb-[calc(1rem+var(--safe-bottom))] space-y-3">
+                <div class="flex justify-between items-center bg-background p-2 rounded-xl border border-border">
+                    <span class="font-bold text-xs text-muted pl-2">Diskon Pesanan</span>
+                    <select id="payment-discount" onchange="app.cart.validatePayment()" class="bg-surface border border-border rounded-lg px-2 py-1 text-sm font-bold text-primary focus:outline-none">
+                        <option value="0">0%</option>
+                        <option value="10">10%</option>
+                        <option value="30">30%</option>
+                        <option value="50">50%</option>
+                    </select>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="font-bold text-muted">Total Tagihan</span>
+                    <span class="font-black text-2xl text-primary" id="payment-total">Rp0</span>
+                </div>
+                <div>
+                    <div class="grid grid-cols-3 gap-2" id="payment-methods">
+                        <button onclick="app.cart.setPaymentMethod('CASH')" class="pay-method-btn active border-2 border-primary bg-primary-light text-primary py-2.5 rounded-xl text-sm font-bold transition-all">Tunai</button>
+                        <button onclick="app.cart.setPaymentMethod('QRIS')" class="pay-method-btn border border-border bg-background py-2.5 rounded-xl text-sm font-bold text-muted transition-all">QRIS</button>
+                        <button onclick="app.cart.setPaymentMethod('TRANSFER')" class="pay-method-btn border border-border bg-background py-2.5 rounded-xl text-sm font-bold text-muted transition-all">Transfer</button>
+                    </div>
+                </div>
+                <div id="cash-input-section" class="space-y-3 bg-background p-4 rounded-2xl border border-border">
+                    <div>
+                        <label class="block text-xs font-bold text-muted mb-1">Uang Diterima (Rp)</label>
+                        <input type="number" id="payment-cash" class="w-full bg-surface border border-border rounded-xl px-4 py-3 text-xl font-black focus:border-primary focus:outline-none text-primary" placeholder="0">
+                    </div>
+                    <div class="flex justify-between text-sm items-center border-t border-border pt-2">
+                        <span class="font-medium text-muted">Kembalian:</span>
+                        <span class="font-black text-lg text-success" id="payment-change">Rp0</span>
+                    </div>
+                    <div class="grid grid-cols-4 gap-2 mt-2" id="quick-cash-btns"></div>
+                </div>
+                <button onclick="app.cart.completeTransaction()" id="btn-complete-trx" class="w-full bg-primary text-white py-4 rounded-2xl font-black shadow-glow-primary btn-press text-lg uppercase tracking-wide mt-2">Selesaikan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Modal -->
+    <div id="modal-success" class="modal-backdrop fixed inset-0 bg-black/60 z-[70] flex items-center justify-center no-print backdrop-blur-sm">
+        <div class="modal-content w-[90%] max-w-sm bg-surface rounded-[2rem] p-8 text-center shadow-2xl">
+            <div class="w-24 h-24 bg-success/20 rounded-full flex items-center justify-center mx-auto mb-5 animate-[pulse_2s_infinite]">
+                <div class="w-16 h-16 bg-success rounded-full flex items-center justify-center shadow-lg shadow-success/50">
+                    <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="4" d="M5 13l4 4L19 7"></path></svg>
+                </div>
+            </div>
+            <h3 class="font-black text-2xl mb-1 text-text">Transaksi Berhasil!</h3>
+            <p class="text-muted mb-6 text-sm font-medium">Total Pembayaran: <br><span id="success-total" class="font-black text-2xl text-primary mt-1 block">Rp0</span></p>
+            
+            <div class="space-y-3">
+                <div class="grid grid-cols-2 gap-3">
+                    <button onclick="app.receipt.downloadLast()" class="w-full border-2 border-border bg-background py-3.5 rounded-xl font-bold text-text hover:bg-surface-hover btn-press flex justify-center items-center gap-2 transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        Unduh
+                    </button>
+                    <button onclick="app.receipt.printLast()" class="w-full bg-primary text-white py-3.5 rounded-xl font-bold shadow-glow-primary btn-press flex justify-center items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                        Cetak
+                    </button>
+                </div>
+                <button onclick="app.cart.reset()" class="w-full bg-background border border-border py-4 rounded-xl font-bold text-text btn-press mt-2 text-sm hover:bg-surface-hover transition-colors">Tutup & Transaksi Baru</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Receipt Modal -->
+    <div id="modal-receipt" class="modal-backdrop fixed inset-0 bg-black/60 z-[75] flex items-center justify-center no-print backdrop-blur-sm">
+        <div class="modal-content w-[90%] max-w-sm bg-surface rounded-3xl overflow-hidden flex flex-col max-h-[90vh] shadow-2xl">
+            <div class="p-4 border-b border-border flex justify-between items-center bg-surface">
+                <h3 class="font-black text-lg">Detail Transaksi</h3>
+                <button onclick="app.ui.closeModal('modal-receipt')" class="p-1.5 btn-press bg-background rounded-full text-muted"><svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+            </div>
+            <div class="p-6 overflow-y-auto bg-slate-200 dark:bg-slate-800 flex-1 flex justify-center items-start shadow-inner">
+                <div class="bg-white text-black p-5 w-full max-w-[280px] shadow-lg font-receipt text-xs relative" id="receipt-preview-content"></div>
+            </div>
+            <div class="p-4 border-t border-border bg-surface grid grid-cols-2 gap-3">
+                <button onclick="app.receipt.downloadCurrent()" class="border-2 border-border bg-background py-3 rounded-xl font-bold btn-press flex items-center justify-center gap-2 text-text">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    Unduh
+                </button>
+                <button onclick="app.receipt.printCurrent()" class="bg-primary text-white py-3 rounded-xl font-bold btn-press shadow-glow-primary flex items-center justify-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                    Cetak
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden Print Area for Receipt & QR -->
+    <div id="print-area" class="hidden"></div>
+    <div id="print-qr-area" class="hidden"></div>
+    <div id="canvas-render-container" class="fixed top-[-9999px] left-[-9999px] bg-white text-black z-[-1] pointer-events-none"></div>
+
+    <script type="module">
+        // ==========================================
+        // 1. CORE UTILS & AUDIO & DEMO LIMITS
+        // ==========================================
+        const DEMO_LIMIT = 3;
+
+        const utils = {
+            formatRp: (num) => 'Rp' + new Intl.NumberFormat('id-ID').format(num || 0),
+            uuid: () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8); return v.toString(16); }),
+            formatDate: (ts) => new Date(ts).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+            formatTime: (ts) => new Date(ts).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+            debounce: (func, wait) => { let timeout; return function (...args) { clearTimeout(timeout); timeout = setTimeout(() => func(...args), wait); }; }
+        };
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playBeep() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(800, audioCtx.currentTime); 
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+        }
+
+        // ==========================================
+        // 2. INDEXEDDB WRAPPER
+        // ==========================================
+        const DB_NAME = 'POS_Pro_DEMO_DB'; const DB_VERSION = 1; let db;
+        const dbOp = {
+            init: () => new Promise((resolve, reject) => {
+                const req = indexedDB.open(DB_NAME, DB_VERSION);
+                req.onerror = () => reject(req.error);
+                req.onsuccess = () => { db = req.result; resolve(db); };
+                req.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'id' });
+                    if (!db.objectStoreNames.contains('products')) { const ps = db.createObjectStore('products', { keyPath: 'id' }); ps.createIndex('qr', 'qr', { unique: false }); }
+                    if (!db.objectStoreNames.contains('transactions')) db.createObjectStore('transactions', { keyPath: 'id' });
+                };
+            }),
+            get: (store, id) => new Promise((res, rej) => { const req = db.transaction(store).objectStore(store).get(id); req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); }),
+            getAll: (store) => new Promise((res, rej) => { const req = db.transaction(store).objectStore(store).getAll(); req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); }),
+            put: (store, data) => new Promise((res, rej) => { const req = db.transaction(store, 'readwrite').objectStore(store).put(data); req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); }),
+            delete: (store, id) => new Promise((res, rej) => { const req = db.transaction(store, 'readwrite').objectStore(store).delete(id); req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); }),
+            clear: (store) => new Promise((res, rej) => { const req = db.transaction(store, 'readwrite').objectStore(store).clear(); req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); })
+        };
+
+        // ==========================================
+        // 3. THEMES, FONTS & STATE
+        // ==========================================
+        const themes = {
+            ocean: { name: 'Ocean', color: '#2563eb' }, emerald: { name: 'Emerald', color: '#10b981' },
+            violet: { name: 'Violet', color: '#8b5cf6' }, sunset: { name: 'Sunset', color: '#f97316' },
+            rose: { name: 'Rose', color: '#f43f5e' }, midnight: { name: 'Midnight', color: '#0f172a' },
+            teal: { name: 'Teal', color: '#14b8a6' }, cyan: { name: 'Cyan', color: '#06b6d4' },
+            fuchsia: { name: 'Fuchsia', color: '#d946ef' }, lime: { name: 'Lime', color: '#84cc16' },
+            amber: { name: 'Amber', color: '#f59e0b' }, slate: { name: 'Slate', color: '#475569' }
+        };
+
+        const fontOptions = [ "Inter", "Roboto", "Open Sans", "Lato", "Montserrat", "Poppins", "Nunito", "Quicksand", "Oswald", "Manrope"];
+
+        const state = {
+            store: { name: 'Toko Kamu', address: 'Jl. Contoh No. 123, Jakarta', logo: '', footerMsg: 'Terima Kasih atas kunjungan Anda. Silakan datang kembali!', wa: '0812345678', ig: '@toko_kamu', fb: '', footerQr: '' },
+            settings: { theme: 'ocean', darkMode: 'system', font: 'Inter' },
+            products: [], cart: [], transactions: [],
+            selectedProductIds: new Set(), selectedHistoryIds: new Set()
+        };
+
+        // ==========================================
+        // 4. MAIN APP CONTROLLER
+        // ==========================================
+        window.app = {
+            ui: {
+                showToast: (msg, type = 'success') => {
+                    const cont = document.getElementById('toast-container'); const toast = document.createElement('div');
+                    const isErr = type === 'error';
+                    toast.className = `toast-enter p-3.5 rounded-2xl shadow-float font-bold text-sm text-white flex items-center gap-3 ${isErr ? 'bg-danger' : 'bg-surface border border-border text-text'}`;
+                    toast.innerHTML = `<div class="p-1 rounded-full ${isErr ? 'bg-white/20' : 'bg-success/20'}">${isErr ? '<svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>' : '<svg class="w-5 h-5 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>'}</div><span class="${!isErr ? 'text-text' : ''}">${msg}</span>`;
+                    cont.appendChild(toast); if ('vibrate' in navigator) navigator.vibrate(isErr ? [50, 50, 50] : 50);
+                    setTimeout(() => { toast.classList.replace('toast-enter', 'toast-exit'); setTimeout(() => toast.remove(), 200); }, 2000);
+                },
+                openModal: (id) => document.getElementById(id).classList.add('active'),
+                closeModal: (id) => document.getElementById(id).classList.remove('active'),
+                confirm: (msg, onConfirm) => {
+                    document.getElementById('confirm-msg').textContent = msg;
+                    document.getElementById('modal-confirm').classList.add('active');
+                    const btn = document.getElementById('confirm-yes-btn');
+                    btn.onclick = () => { app.ui.closeModal('modal-confirm'); onConfirm(); };
+                },
+                updateDemoCounters: () => {
+                    document.getElementById('demo-prod-count').textContent = parseInt(localStorage.getItem('demo_prod_count') || 0);
+                    document.getElementById('demo-trx-count').textContent = parseInt(localStorage.getItem('demo_trx_count') || 0);
+                }
+            },
+
+            // --- GUIDED TOUR MANAGER ---
+            tour: {
+                currentStep: 0,
+                isActive: false,
+                steps: [
+                    { title: "Dashboard Omzet", desc: "Pantau omzet harian, bulanan, dan total transaksi bisnis Anda secara langsung di sini.", target: "#tour-step-dashboard-stats", view: "dashboard" },
+                    { title: "Peringatan Stok", desc: "Sistem otomatis memisahkan produk yang stoknya menipis agar Anda cepat melakukan restock.", target: "#tour-step-dashboard-stock", view: "dashboard" },
+                    { title: "Menu Produk", desc: "Kelola semua daftar produk Anda di menu ini.", target: "#tour-step-nav-prod", view: "products" },
+                    { title: "Tambah Produk", desc: "Tambahkan produk satuan secara manual atau gunakan mode Import CSV untuk banyak produk sekaligus.", target: "#tour-step-product-add", view: "products" },
+                    { title: "Menu Kasir", desc: "Lakukan transaksi penjualan dengan cepat dan mudah.", target: "#tour-step-nav-cash", view: "cashier" },
+                    { title: "Scan Barcode", desc: "Fitur unggulan! Gunakan kamera HP Anda untuk scan barcode/QR produk secara instan tanpa alat tambahan.", target: "#tour-step-cashier-scan", view: "cashier" },
+                    { title: "Menu Riwayat", desc: "Lihat kembali semua histori penjualan Anda.", target: "#tour-step-nav-hist", view: "history" },
+                    { title: "Filter Transaksi", desc: "Saring laporan penjualan berdasarkan metode pembayaran (Tunai/QRIS/Transfer) atau urutan waktu.", target: "#tour-step-history-filter", view: "history" },
+                    { title: "Pengaturan Demo", desc: "Sesuaikan tema, ubah nama toko, atau Ulangi Panduan ini melalui menu Pengaturan.", target: "#tour-step-settings-demo", view: "settings" }
+                ],
+                start: (force = false) => {
+                    if (localStorage.getItem('tour_completed') && !force) return;
+                    app.ui.openModal('modal-welcome-tour');
+                },
+                startProcess: () => {
+                    app.tour.isActive = true;
+                    app.tour.currentStep = 0;
+                    document.getElementById('tour-overlay').style.display = 'block';
+                    app.tour.renderStep();
+                },
+                renderStep: () => {
+                    const step = app.tour.steps[app.tour.currentStep];
+                    if (document.querySelector('.view-container.active').id !== `view-${step.view}`) {
+                        app.navigate(step.view);
+                    }
+                    
+                    document.getElementById('tour-step-indicator').textContent = `Langkah ${app.tour.currentStep + 1}/${app.tour.steps.length}`;
+                    document.getElementById('tour-title').textContent = step.title;
+                    document.getElementById('tour-desc').textContent = step.desc;
+                    document.getElementById('tour-btn-prev').style.display = app.tour.currentStep === 0 ? 'none' : 'block';
+                    document.getElementById('tour-btn-next').textContent = app.tour.currentStep === app.tour.steps.length - 1 ? 'Selesai' : 'Lanjut';
+
+                    setTimeout(() => app.tour.highlight(step.target), 200); // Wait for transition
+                },
+                highlight: (selector) => {
+                    const el = document.querySelector(selector);
+                    const ring = document.getElementById('tour-focus-ring');
+                    const tooltip = document.getElementById('tour-tooltip');
+                    
+                    if(!el) { ring.style.display = 'none'; return; }
+                    
+                    // Smooth scroll to element if needed
+                    el.scrollIntoView({behavior: 'smooth', block: 'center'});
+                    
+                    setTimeout(() => {
+                        const rect = el.getBoundingClientRect();
+                        ring.style.display = 'block';
+                        ring.style.top = (rect.top - 6) + 'px';
+                        ring.style.left = (rect.left - 6) + 'px';
+                        ring.style.width = (rect.width + 12) + 'px';
+                        ring.style.height = (rect.height + 12) + 'px';
+                        
+                        tooltip.style.display = 'flex';
+                        
+                        // Positioning Logic
+                        let topPos, place;
+                        if (rect.bottom + tooltip.offsetHeight + 30 > window.innerHeight && rect.top > tooltip.offsetHeight + 30) {
+                            topPos = rect.top - tooltip.offsetHeight - 20;
+                            place = 'top';
+                        } else {
+                            topPos = rect.bottom + 20;
+                            place = 'bottom';
+                        }
+                        
+                        let leftPos = rect.left + (rect.width / 2) - (tooltip.offsetWidth / 2);
+                        if (leftPos < 10) leftPos = 10;
+                        if (leftPos + tooltip.offsetWidth > window.innerWidth - 10) leftPos = window.innerWidth - tooltip.offsetWidth - 10;
+                        
+                        tooltip.style.top = topPos + 'px';
+                        tooltip.style.left = leftPos + 'px';
+                        tooltip.setAttribute('data-place', place);
+                        
+                        setTimeout(() => tooltip.classList.add('active'), 10);
+                    }, 300);
+                },
+                next: () => {
+                    document.getElementById('tour-tooltip').classList.remove('active');
+                    if (app.tour.currentStep < app.tour.steps.length - 1) {
+                        app.tour.currentStep++;
+                        setTimeout(() => app.tour.renderStep(), 300);
+                    } else {
+                        app.tour.close();
+                        app.ui.showToast('Panduan Selesai!');
+                    }
+                },
+                prev: () => {
+                    document.getElementById('tour-tooltip').classList.remove('active');
+                    if (app.tour.currentStep > 0) {
+                        app.tour.currentStep--;
+                        setTimeout(() => app.tour.renderStep(), 300);
+                    }
+                },
+                close: () => {
+                    app.tour.isActive = false;
+                    document.getElementById('tour-overlay').style.display = 'none';
+                    document.getElementById('tour-focus-ring').style.display = 'none';
+                    document.getElementById('tour-tooltip').style.display = 'none';
+                    document.getElementById('tour-tooltip').classList.remove('active');
+                    localStorage.setItem('tour_completed', 'true');
+                    app.navigate('dashboard');
+                },
+                skipWelcome: () => {
+                    app.ui.closeModal('modal-welcome-tour');
+                    localStorage.setItem('tour_completed', 'true');
+                }
+            },
+
+            navigate: (viewId) => {
+                if (viewId !== 'cashier' && state.cart.length > 0) { state.cart = []; app.cart.updateUI(); }
+                if (viewId !== 'products') { state.selectedProductIds.clear(); app.products.updateActionPanel(); }
+                if (viewId !== 'history') { state.selectedHistoryIds.clear(); app.history.updateActionPanel(); }
+
+                document.querySelectorAll('.nav-btn').forEach(btn => { if (btn.dataset.target === viewId) btn.classList.add('active-nav'); else btn.classList.remove('active-nav'); });
+                document.querySelectorAll('.view-container').forEach(view => {
+                    if (view.id === `view-${viewId}`) { view.style.display = 'block'; void view.offsetWidth; view.classList.add('active'); } 
+                    else { view.classList.remove('active'); setTimeout(() => { if(!view.classList.contains('active')) view.style.display = 'none'; }, 150); }
+                });
+
+                if (viewId === 'dashboard') app.dashboard.render();
+                if (viewId === 'products') app.products.renderList();
+                if (viewId === 'cashier') { app.cart.renderPOSGrid(); }
+                if (viewId === 'history') app.history.render();
+                
+                document.title = `${state.store.name} - POS`;
+                
+                // Re-calculate focus ring if tour is active during navigation
+                if (app.tour.isActive) {
+                    const step = app.tour.steps[app.tour.currentStep];
+                    if (step && step.view === viewId) {
+                        setTimeout(() => app.tour.highlight(step.target), 300);
+                    }
+                }
+            },
+
+            settings: {
+                load: async () => {
+                    const saved = await dbOp.get('settings', 'main');
+                    if (saved) { state.store = { ...state.store, ...saved.store }; state.settings = { ...state.settings, ...saved.config }; }
+                    app.settings.populateFonts(); app.settings.applyTheme(); app.settings.applyFont(state.settings.font, false); app.settings.updateUI();
+                },
+                populateFonts: () => {
+                    const select = document.getElementById('setting-font-family');
+                    select.innerHTML = fontOptions.map(f => `<option value="${f}">${f}</option>`).join('');
+                },
+                saveProfile: async () => {
+                    state.store.name = document.getElementById('setting-store-name').value || 'Toko Kamu';
+                    state.store.address = document.getElementById('setting-store-address').value;
+                    state.store.footerMsg = document.getElementById('setting-store-footer').value || 'Terima Kasih atas kunjungan Anda. Silakan datang kembali!';
+                    state.store.wa = document.getElementById('setting-wa').value;
+                    state.store.ig = document.getElementById('setting-ig').value;
+                    state.store.fb = document.getElementById('setting-fb').value;
+                    state.store.footerQr = document.getElementById('setting-footer-qr').value;
+                    
+                    const logoFile = document.getElementById('setting-store-logo').files[0];
+                    if (logoFile) {
+                        const reader = new FileReader();
+                        reader.onload = async (e) => { state.store.logo = e.target.result; await app.settings._saveToDb(); app.settings.updateUI(); app.ui.showToast('Profil & Logo tersimpan'); };
+                        reader.readAsDataURL(logoFile);
+                    } else { await app.settings._saveToDb(); app.settings.updateUI(); app.ui.showToast('Profil tersimpan'); }
+                },
+                _saveToDb: async () => { await dbOp.put('settings', { id: 'main', store: state.store, config: state.settings }); },
+                updateUI: () => {
+                    document.getElementById('store-name-header').textContent = state.store.name; document.title = `${state.store.name} - POS`;
+                    document.getElementById('setting-store-name').value = state.store.name;
+                    document.getElementById('setting-store-address').value = state.store.address;
+                    document.getElementById('setting-store-footer').value = state.store.footerMsg;
+                    document.getElementById('setting-wa').value = state.store.wa || '';
+                    document.getElementById('setting-ig').value = state.store.ig || '';
+                    document.getElementById('setting-fb').value = state.store.fb || '';
+                    document.getElementById('setting-footer-qr').value = state.store.footerQr || '';
+                    document.getElementById('setting-font-family').value = state.settings.font || 'Inter';
+                    
+                    const logoHeader = document.getElementById('store-logo-header'); const logoImg = document.getElementById('store-logo-img'); const logoText = document.getElementById('store-logo-text'); const logoPreview = document.getElementById('setting-logo-preview');
+                    if (state.store.logo) {
+                        logoImg.src = state.store.logo; logoImg.classList.remove('hidden'); logoText.classList.add('hidden');
+                        logoHeader.classList.replace('bg-primary', 'bg-transparent'); logoHeader.classList.replace('shadow-glow-primary', 'shadow-none');
+                        logoPreview.src = state.store.logo; logoPreview.classList.remove('hidden');
+                    } else {
+                        logoImg.classList.add('hidden'); logoText.classList.remove('hidden'); logoText.textContent = state.store.name.substring(0, 3).toUpperCase();
+                        logoHeader.classList.replace('bg-transparent', 'bg-primary'); logoHeader.classList.add('shadow-glow-primary'); logoPreview.classList.add('hidden');
+                    }
+                },
+                setTheme: async (id) => { state.settings.theme = id; await app.settings._saveToDb(); app.settings.applyTheme(); },
+                setDarkMode: async (mode) => { state.settings.darkMode = mode; await app.settings._saveToDb(); app.settings.applyTheme(); },
+                setFont: async (font) => { state.settings.font = font; await app.settings._saveToDb(); app.settings.applyFont(font, true); },
+                applyTheme: () => {
+                    const theme = themes[state.settings.theme] || themes.ocean;
+                    document.documentElement.style.setProperty('--primary', theme.color); document.documentElement.style.setProperty('--primary-light', theme.color + '20'); 
+                    document.getElementById('meta-theme-color').content = theme.color;
+                    const isDark = state.settings.darkMode === 'dark' || (state.settings.darkMode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                    isDark ? document.documentElement.classList.add('dark') : document.documentElement.classList.remove('dark');
+                    document.getElementById('setting-dark-mode').value = state.settings.darkMode;
+                    document.getElementById('theme-grid').innerHTML = Object.entries(themes).map(([id, t]) => `<button onclick="app.settings.setTheme('${id}')" class="w-full h-10 rounded-xl border-4 transition-all active:scale-95 shadow-sm ${state.settings.theme === id ? 'border-background shadow-glow-primary scale-110' : 'border-transparent'}" style="background-color: ${t.color};" title="${t.name}"></button>`).join('');
+                },
+                applyFont: (fontName, fetch = false) => {
+                    if(!fontName) return; if(fetch) app.ui.showToast(`Menerapkan font ${fontName}...`);
+                    document.getElementById('dynamic-font').href = `https://fonts.googleapis.com/css2?family=${fontName.replace(/ /g, '+')}:wght@400;500;600;700;800&family=Courier+Prime:wght@400;700&display=swap`;
+                    document.documentElement.style.setProperty('--font-family', `'${fontName}', system-ui, sans-serif`);
+                }
+            },
+
+            products: {
+                load: async () => { state.products = await dbOp.getAll('products'); state.products.sort((a, b) => a.name.localeCompare(b.name)); },
+                renderList: (filter = '') => {
+                    const list = document.getElementById('product-list');
+                    let filtered = [...state.products];
+                    if (filter) filtered = filtered.filter(p => p.name.toLowerCase().includes(filter.toLowerCase()) || (p.qr && p.qr.includes(filter)));
+                    
+                    if (filtered.length === 0) { list.innerHTML = `<div class="text-center py-12 text-muted font-medium text-sm">Produk tidak ditemukan.</div>`; return; }
+
+                    list.innerHTML = filtered.map(p => `
+                        <div class="bg-surface p-3.5 rounded-2xl shadow-sm border border-border flex items-center gap-3 transition-colors ${state.selectedProductIds.has(p.id) ? 'border-primary bg-primary-light' : ''}">
+                            <input type="checkbox" onchange="app.products.toggleSelect('${p.id}', this.checked)" ${state.selectedProductIds.has(p.id) ? 'checked' : ''} class="w-5 h-5 rounded border-border text-primary focus:ring-primary accent-primary ml-1 cursor-pointer">
+                            <div class="flex-1 flex items-center justify-between cursor-pointer active:scale-[0.98] transition-transform" onclick="app.products.showEditModal('${p.id}')">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 bg-background rounded-lg border border-border flex items-center justify-center overflow-hidden flex-shrink-0 qr-thumb" id="qr-list-${p.id}">${!p.qr ? '<span class="text-[9px] font-bold text-muted">NO QR</span>' : ''}</div>
+                                    <div><div class="font-bold text-sm leading-tight">${p.name}</div><div class="text-primary font-black text-sm mt-0.5">${utils.formatRp(p.price)}</div></div>
+                                </div>
+                                <div class="text-right flex flex-col items-end"><div class="text-[10px] font-bold text-muted mb-1 uppercase tracking-wider">Stok</div><div class="font-black text-sm ${p.stock <= 5 ? 'text-danger bg-danger/10' : 'text-success bg-success/10'} px-2.5 py-1 rounded-lg">${p.stock}</div></div>
+                            </div>
+                        </div>
+                    `).join('');
+                    
+                    setTimeout(() => { filtered.forEach(p => { if (p.qr && typeof QRCode !== 'undefined') { const cont = document.getElementById(`qr-list-${p.id}`); if(cont) { cont.innerHTML = ''; new QRCode(cont, { text: p.qr, width: 40, height: 40, colorDark: "#000", colorLight: "#fff" }); } } }); }, 50);
+                    app.products.updateActionPanel();
+                },
+                toggleSelect: (id, checked) => { checked ? state.selectedProductIds.add(id) : state.selectedProductIds.delete(id); app.products.updateActionPanel(); },
+                toggleAll: (checkbox) => { 
+                    const filter = document.getElementById('search-product').value;
+                    let filtered = [...state.products]; if (filter) filtered = filtered.filter(p => p.name.toLowerCase().includes(filter.toLowerCase()) || (p.qr && p.qr.includes(filter)));
+                    if (checkbox.checked) filtered.forEach(p => state.selectedProductIds.add(p.id)); else state.selectedProductIds.clear();
+                    app.products.renderList(filter); 
+                },
+                updateActionPanel: () => {
+                    const count = state.selectedProductIds.size; const textEl = document.getElementById('product-select-text'); const actionsEl = document.getElementById('product-actions'); const checkAll = document.getElementById('check-all-products');
+                    if (count > 0) { textEl.textContent = `${count} Terpilih`; textEl.classList.add('text-primary', 'opacity-0', '-translate-x-4'); actionsEl.classList.remove('opacity-0', 'translate-x-8', 'pointer-events-none'); checkAll.checked = true; } 
+                    else { textEl.textContent = 'Pilih Semua'; textEl.classList.remove('text-primary', 'opacity-0', '-translate-x-4'); actionsEl.classList.add('opacity-0', 'translate-x-8', 'pointer-events-none'); checkAll.checked = false; }
+                    document.querySelectorAll('#product-list input[type="checkbox"]').forEach(cb => { const id = cb.getAttribute('onchange').match(/'([^']+)'/)[1]; const container = cb.closest('.bg-surface'); if (state.selectedProductIds.has(id)) { cb.checked = true; container.classList.add('border-primary', 'bg-primary-light'); } else { cb.checked = false; container.classList.remove('border-primary', 'bg-primary-light'); } });
+                },
+                confirmDeleteSelected: () => app.ui.confirm(`Hapus ${state.selectedProductIds.size} produk terpilih?`, async () => { for(const id of state.selectedProductIds) await dbOp.delete('products', id); state.selectedProductIds.clear(); await app.products.load(); app.products.renderList(); app.ui.showToast('Produk dihapus'); }),
+                
+                switchTab: (tab) => {
+                    document.querySelectorAll('#product-tabs button').forEach(btn => { btn.classList.remove('text-primary', 'border-primary'); btn.classList.add('text-muted', 'border-transparent'); });
+                    document.getElementById(`tab-btn-${tab}`).classList.add('text-primary', 'border-primary'); document.getElementById(`tab-btn-${tab}`).classList.remove('text-muted', 'border-transparent');
+                    document.querySelectorAll('.active-tab').forEach(el => el.classList.remove('active-tab'));
+                    document.getElementById(`tab-${tab}`).classList.add('active-tab');
+                    const btnSave = document.getElementById('btn-save-prod');
+                    if (tab === 'csv') { btnSave.textContent = 'Proses Data Massal'; btnSave.onclick = app.products.saveCSV; } else { btnSave.textContent = 'Simpan'; btnSave.onclick = app.products.saveProduct; }
+                },
+                showAddModal: () => {
+                    document.getElementById('modal-product-title').textContent = 'Tambah Produk';
+                    document.getElementById('prod-id').value = ''; document.getElementById('prod-name').value = ''; document.getElementById('prod-price').value = ''; document.getElementById('prod-stock').value = '0'; document.getElementById('prod-qr').value = ''; document.getElementById('prod-csv-input').value = '';
+                    document.getElementById('qr-preview-container').classList.add('hidden'); document.getElementById('product-tabs').classList.remove('hidden');
+                    app.products.switchTab('manual'); app.ui.openModal('modal-product');
+                },
+                showEditModal: (id) => {
+                    const p = state.products.find(x => x.id === id); if (!p) return;
+                    document.getElementById('modal-product-title').textContent = 'Edit Produk';
+                    document.getElementById('prod-id').value = p.id; document.getElementById('prod-name').value = p.name; document.getElementById('prod-price').value = p.price; document.getElementById('prod-stock').value = p.stock; document.getElementById('prod-qr').value = p.qr || '';
+                    document.getElementById('product-tabs').classList.add('hidden'); app.products.switchTab('manual');
+                    p.qr ? app.products.renderQR(p.qr) : document.getElementById('qr-preview-container').classList.add('hidden');
+                    app.ui.openModal('modal-product');
+                },
+                generateRandomQR: () => { const rand = 'PRD-' + Math.random().toString().substring(2, 8); document.getElementById('prod-qr').value = rand; app.products.renderQR(rand); },
+                renderQR: (text) => {
+                    const cont = document.getElementById('qr-preview-container'); const renderDiv = document.getElementById('qrcode-render');
+                    renderDiv.innerHTML = ''; cont.classList.remove('hidden'); cont.classList.add('flex');
+                    if(typeof QRCode !== 'undefined') { new QRCode(renderDiv, { text: text, width: 140, height: 140, colorDark : "#000", colorLight : "#fff" }); document.getElementById('qr-text-render').textContent = text; }
+                },
+                saveProduct: async () => {
+                    const id = document.getElementById('prod-id').value || utils.uuid();
+                    const isNew = !document.getElementById('prod-id').value;
+                    const name = document.getElementById('prod-name').value.trim(); const price = parseInt(document.getElementById('prod-price').value) || 0; const stock = parseInt(document.getElementById('prod-stock').value) || 0; const qr = document.getElementById('prod-qr').value.trim();
+                    if (!name || price <= 0) return app.ui.showToast('Nama dan harga valid diperlukan', 'error');
+
+                    // DEMO LIMIT LOGIC
+                    if (isNew) {
+                        let count = parseInt(localStorage.getItem('demo_prod_count') || 0);
+                        if (count >= DEMO_LIMIT) {
+                            app.ui.showToast('Batas Demo: Maksimal 3 Produk Baru tercapai.', 'error');
+                            return;
+                        }
+                        localStorage.setItem('demo_prod_count', count + 1);
+                        app.ui.updateDemoCounters();
+                    }
+
+                    await dbOp.put('products', { id, name, price, stock, qr, updated: Date.now() });
+                    await app.products.load(); app.products.renderList(); app.ui.closeModal('modal-product'); app.ui.showToast('Produk disimpan');
+                },
+                saveCSV: async () => {
+                    const input = document.getElementById('prod-csv-input').value.trim();
+                    if(!input) return app.ui.showToast('Data CSV kosong', 'error');
+                    
+                    let countAdded = parseInt(localStorage.getItem('demo_prod_count') || 0);
+                    const available = DEMO_LIMIT - countAdded;
+                    if (available <= 0) {
+                        app.ui.showToast('Batas Demo: Maksimal 3 Produk Baru tercapai.', 'error');
+                        return;
+                    }
+
+                    const lines = input.split('\n'); let count = 0;
+                    for (let line of lines) {
+                        if (count >= available) break;
+                        const parts = line.split(',');
+                        if (parts.length >= 2) {
+                            const name = parts[0].trim(); const price = parseInt(parts[1].trim()) || 0; const stock = parts[2] ? parseInt(parts[2].trim()) : 0;
+                            if (name && price > 0) { 
+                                await dbOp.put('products', { id: utils.uuid(), name, price, stock, qr: 'PRD-' + Math.random().toString().substring(2, 8), updated: Date.now() }); 
+                                count++; 
+                            }
+                        }
+                    }
+                    localStorage.setItem('demo_prod_count', countAdded + count);
+                    app.ui.updateDemoCounters();
+
+                    await app.products.load(); app.products.renderList(); app.ui.closeModal('modal-product'); 
+                    if (count < lines.length && count === available) {
+                        app.ui.showToast(`Batas tercapai. Hanya ${count} produk yang disimpan.`, 'warning');
+                    } else {
+                        app.ui.showToast(`${count} produk massal disimpan`);
+                    }
+                },
+                
+                printQR: () => {
+                    if (state.selectedProductIds.size === 0) return; 
+                    const selected = Array.from(state.selectedProductIds).map(id => state.products.find(p => p.id === id)).filter(Boolean);
+                    const renderArea = document.getElementById('canvas-render-container'); renderArea.innerHTML = '';
+                    
+                    if (selected.length === 1) {
+                        const p = selected[0]; 
+                        renderArea.innerHTML = `<div id="single-qr-render" class="bg-white p-6 rounded-2xl flex flex-col items-center text-center w-[280px] border border-gray-200"><h3 class="font-black text-xl mb-4 leading-tight text-black">${p.name}</h3><div id="single-qr-box" class="mb-4"></div><div class="font-black text-2xl text-black w-full py-2 bg-gray-100 rounded-lg">${utils.formatRp(p.price)}</div></div>`;
+                        new QRCode(document.getElementById('single-qr-box'), { text: p.qr, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.H });
+                        app.ui.showToast('Menyiapkan gambar...'); 
+                        setTimeout(() => { html2canvas(document.getElementById('single-qr-render'), { scale: 3, backgroundColor: null }).then(canvas => { const link = document.createElement('a'); link.download = `QR-${p.name}.png`; link.href = canvas.toDataURL(); link.click(); }); }, 500);
+                        state.selectedProductIds.clear(); app.products.updateActionPanel();
+                    } else {
+                        const printArea = document.getElementById('print-qr-area'); 
+                        let html = `<div class="grid grid-cols-5 gap-1 p-2 bg-white font-sans text-black">`; 
+                        selected.forEach(p => { 
+                            html += `<div class="border border-gray-400 p-1 flex flex-col items-center text-center break-inside-avoid">
+                                <div class="font-bold text-[9px] mb-1 line-clamp-2 min-h-[24px] leading-tight text-black">${p.name}</div>
+                                <div id="print-qr-${p.id}" class="mb-1"></div>
+                                <div class="font-black text-[10px] text-black">${utils.formatRp(p.price)}</div>
+                            </div>`; 
+                        }); 
+                        html += `</div>`; 
+                        printArea.innerHTML = html;
+                        
+                        selected.forEach(p => { const cont = document.getElementById(`print-qr-${p.id}`); if(cont) new QRCode(cont, { text: p.qr, width: 64, height: 64, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.L }); });
+                        
+                        document.getElementById('print-qr-area').classList.add('active-print');
+                        setTimeout(() => { window.print(); document.getElementById('print-qr-area').classList.remove('active-print'); state.selectedProductIds.clear(); app.products.updateActionPanel(); }, 500);
+                    }
+                }
+            },
+
+            scanner: {
+                instance: null, isScanning: false, lastScannedCode: null, scanCount: 0,
+                start: () => {
+                    document.getElementById('modal-scanner').classList.remove('hidden'); setTimeout(() => document.getElementById('modal-scanner').classList.remove('translate-y-full'), 10);
+                    app.scanner.scanCount = 0; document.getElementById('scan-count').textContent = '0'; document.getElementById('scan-preview-list').innerHTML = '<div class="text-muted italic text-xs text-center py-2">Arahkan kamera ke QR/Barcode...</div>';
+                    if (!app.scanner.instance) app.scanner.instance = new Html5Qrcode("scanner-container");
+                    app.scanner.instance.start({ facingMode: "environment" }, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 }, app.scanner.onSuccess, () => {}).then(() => { app.scanner.isScanning = true; }).catch(() => { app.scanner.stop(); app.ui.showToast('Kamera tidak tersedia.', 'error'); });
+                },
+                stop: () => {
+                    document.getElementById('modal-scanner').classList.add('translate-y-full');
+                    setTimeout(() => { document.getElementById('modal-scanner').classList.add('hidden'); if (app.scanner.instance && app.scanner.isScanning) { app.scanner.instance.stop().then(() => { app.scanner.isScanning = false; }).catch(console.error); } }, 200);
+                },
+                onSuccess: (decodedText) => {
+                    if (app.scanner.lastScannedCode === decodedText) return;
+                    app.scanner.lastScannedCode = decodedText; setTimeout(() => { app.scanner.lastScannedCode = null; }, 1500);
+                    const prod = state.products.find(p => p.qr === decodedText);
+                    if (prod) {
+                        playBeep(); app.cart.add(prod, true);
+                        const qty = state.cart.find(x => x.id === prod.id).qty;
+                        const list = document.getElementById('scan-preview-list');
+                        const existingEl = document.getElementById(`scan-preview-${prod.id}`);
+                        if (existingEl) existingEl.innerHTML = `<span class="truncate pr-2">${prod.name}</span><span class="text-success font-black">${qty}x</span>`;
+                        else {
+                            if(list.querySelector('.italic')) list.innerHTML = '';
+                            list.insertAdjacentHTML('afterbegin', `<div id="scan-preview-${prod.id}" class="flex justify-between py-1.5 border-b border-border/50 text-white last:border-0 font-bold"><span class="truncate pr-2">${prod.name}</span><span class="text-success font-black">1x</span></div>`);
+                        }
+                    } else { app.ui.showToast(`QR tak dikenal`, 'error'); if('vibrate' in navigator) navigator.vibrate([100, 50, 100]); }
+                }
+            },
+
+            cart: {
+                paymentMethod: 'CASH', discountPct: 0,
+                renderPOSGrid: (filter = '') => {
+                    const grid = document.getElementById('pos-product-grid');
+                    const filtered = state.products.filter(p => p.name.toLowerCase().includes(filter.toLowerCase()));
+                    if (filtered.length === 0) { grid.innerHTML = `<div class="text-center py-10 font-medium text-muted text-sm">Produk tidak ditemukan</div>`; return; }
+                    grid.innerHTML = `<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">` + filtered.map(p => `
+                        <button onclick="app.cart.addById('${p.id}')" class="bg-surface rounded-2xl shadow-sm border border-border p-3.5 text-left flex flex-col active:scale-95 transition-transform overflow-hidden relative min-h-[100px]">
+                            ${p.stock <= 0 ? '<div class="absolute inset-0 bg-background/80 backdrop-blur-[2px] flex items-center justify-center z-10"><span class="bg-danger text-white text-xs font-black px-3 py-1.5 rounded-lg shadow-lg">HABIS</span></div>' : ''}
+                            <div class="font-bold text-sm mb-1 leading-tight line-clamp-2">${p.name}</div>
+                            <div class="text-primary font-black text-sm mt-auto">${utils.formatRp(p.price)}</div>
+                            <div class="text-[10px] font-bold text-muted mt-1 uppercase">Stok: ${p.stock}</div>
+                        </button>
+                    `).join('') + `</div>`;
+                },
+                addById: (id) => { const p = state.products.find(x => x.id === id); if(p) app.cart.add(p); },
+                add: (product, fromScanner = false) => {
+                    if (product.stock <= 0) return app.ui.showToast(`Stok ${product.name} habis!`, 'error');
+                    const existing = state.cart.find(item => item.id === product.id);
+                    if (existing) { if (existing.qty >= product.stock) return app.ui.showToast(`Maksimal stok tercapai`, 'error'); existing.qty++; } 
+                    else state.cart.push({ ...product, qty: 1 });
+                    app.cart.updateUI();
+                    if(!fromScanner) {
+                        const countEl = document.getElementById('cart-count');
+                        countEl.classList.add('scale-150', 'text-primary'); setTimeout(() => countEl.classList.remove('scale-150', 'text-primary'), 200);
+                    }
+                },
+                updateQty: (id, delta) => {
+                    const item = state.cart.find(x => x.id === id); if (!item) return;
+                    const prod = state.products.find(x => x.id === id);
+                    if (delta > 0 && item.qty >= prod.stock) return app.ui.showToast(`Maksimal stok tercapai`, 'error');
+                    item.qty += delta; if (item.qty <= 0) state.cart = state.cart.filter(x => x.id !== id);
+                    app.cart.updateUI(); app.cart.renderDetails(); app.cart.validatePayment();
+                },
+                updateUI: () => {
+                    const totalQty = state.cart.reduce((sum, item) => sum + item.qty, 0);
+                    const totalPrice = state.cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+                    document.getElementById('cart-count').textContent = totalQty; document.getElementById('cart-total').textContent = utils.formatRp(totalPrice);
+                    document.getElementById('btn-pay').disabled = totalQty === 0;
+                    app.scanner.scanCount = totalQty; document.getElementById('scan-count').textContent = totalQty;
+                },
+                showDetails: () => {
+                    if(state.cart.length === 0) return app.ui.showToast('Keranjang kosong', 'error');
+                    app.cart.discountPct = 0; document.getElementById('payment-discount').value = "0";
+                    app.cart.renderDetails(); app.cart.setPaymentMethod('CASH'); app.ui.openModal('modal-cart');
+                },
+                renderDetails: () => {
+                    const list = document.getElementById('cart-detail-list');
+                    if (state.cart.length === 0) return app.ui.closeModal('modal-cart');
+                    list.innerHTML = state.cart.map(item => `
+                        <div class="flex justify-between items-center bg-surface p-3.5 rounded-2xl border border-border mb-3 shadow-sm">
+                            <div class="flex-1 pr-2"><div class="font-bold text-sm truncate">${item.name}</div><div class="text-primary font-black text-sm mt-0.5">${utils.formatRp(item.price)}</div></div>
+                            <div class="flex items-center gap-3 bg-background rounded-xl p-1.5 border border-border">
+                                <button onclick="app.cart.updateQty('${item.id}', -1)" class="w-8 h-8 rounded-lg bg-surface flex items-center justify-center font-black text-lg btn-press text-text hover:bg-surface-hover">-</button>
+                                <span class="font-black w-4 text-center text-sm">${item.qty}</span>
+                                <button onclick="app.cart.updateQty('${item.id}', 1)" class="w-8 h-8 rounded-lg bg-primary text-white flex items-center justify-center font-black text-lg btn-press">+</button>
+                            </div>
+                        </div>
+                    `).join('');
+                },
+                setPaymentMethod: (method) => {
+                    app.cart.paymentMethod = method;
+                    document.querySelectorAll('.pay-method-btn').forEach(btn => btn.className = 'pay-method-btn border border-border bg-background py-2.5 rounded-xl text-sm font-bold text-muted transition-all');
+                    event.currentTarget.className = 'pay-method-btn active border-2 border-primary bg-primary-light text-primary py-2.5 rounded-xl text-sm font-black shadow-glow-primary transition-all';
+                    const cashSec = document.getElementById('cash-input-section');
+                    if (method === 'CASH') { cashSec.classList.remove('hidden'); document.getElementById('payment-cash').value = ''; document.getElementById('payment-change').textContent = 'Rp0'; app.cart.generateQuickCash(); } 
+                    else cashSec.classList.add('hidden');
+                    app.cart.validatePayment();
+                },
+                generateQuickCash: () => {
+                    const subtotal = state.cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+                    const total = subtotal - (subtotal * app.cart.discountPct / 100);
+                    const nominals = new Set([total]);
+                    [50000, 100000, 150000, 200000, 500000].forEach(n => { if (n >= total) nominals.add(n); });
+                    document.getElementById('quick-cash-btns').innerHTML = Array.from(nominals).sort((a,b) => a-b).slice(0,4).map(n => `<button onclick="document.getElementById('payment-cash').value = ${n}; app.cart.validatePayment()" class="bg-surface border border-border rounded-xl py-2 text-xs font-bold btn-press text-text hover:bg-surface-hover">${n === total ? 'Uang Pas' : utils.formatRp(n).replace('Rp','')}</button>`).join('');
+                },
+                validatePayment: () => {
+                    app.cart.discountPct = parseInt(document.getElementById('payment-discount').value) || 0;
+                    const subtotal = state.cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+                    const total = subtotal - (subtotal * app.cart.discountPct / 100);
+                    document.getElementById('payment-total').textContent = utils.formatRp(total);
+                    app.cart.generateQuickCash();
+                    
+                    const btn = document.getElementById('btn-complete-trx');
+                    if (app.cart.paymentMethod === 'CASH') {
+                        const cash = parseInt(document.getElementById('payment-cash').value) || 0;
+                        const change = cash - total;
+                        document.getElementById('payment-change').textContent = utils.formatRp(Math.max(0, change));
+                        document.getElementById('payment-change').className = change >= 0 ? 'font-black text-lg text-success' : 'font-black text-lg text-danger';
+                        btn.disabled = cash < total;
+                    } else btn.disabled = false;
+                },
+                processPayment: () => app.cart.showDetails(),
+                completeTransaction: async () => {
+                    const btn = document.getElementById('btn-complete-trx'); if (btn.disabled) return;
+                    
+                    // DEMO LIMIT LOGIC
+                    let countAdded = parseInt(localStorage.getItem('demo_trx_count') || 0);
+                    if (countAdded >= DEMO_LIMIT) {
+                        app.ui.showToast('Batas Demo: Maksimal 3 Transaksi Baru tercapai.', 'error');
+                        return;
+                    }
+
+                    const subtotal = state.cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+                    const discountAmt = subtotal * app.cart.discountPct / 100;
+                    const total = subtotal - discountAmt;
+                    const method = app.cart.paymentMethod;
+                    let cash = total, change = 0;
+                    
+                    if (method === 'CASH') { cash = parseInt(document.getElementById('payment-cash').value) || 0; change = cash - total; }
+                    const trxId = 'TRX-' + Date.now().toString().slice(-6) + Math.floor(Math.random()*1000);
+                    const transaction = { id: trxId, date: Date.now(), items: [...state.cart], total, method, cash, change, discountPct: app.cart.discountPct, discountAmt };
+
+                    await dbOp.put('transactions', transaction);
+                    for (const item of state.cart) { const prod = state.products.find(p => p.id === item.id); if (prod) { prod.stock -= item.qty; await dbOp.put('products', prod); } }
+
+                    localStorage.setItem('demo_trx_count', countAdded + 1);
+                    app.ui.updateDemoCounters();
+
+                    await app.products.load(); await app.history.load(); 
+                    app.ui.closeModal('modal-cart');
+                    document.getElementById('success-total').textContent = utils.formatRp(total);
+                    app.receipt.prepareHTML(transaction);
+                    app.ui.openModal('modal-success');
+                    if('vibrate' in navigator) navigator.vibrate([100, 50, 100, 50, 200]);
+                },
+                reset: () => { state.cart = []; app.cart.updateUI(); app.ui.closeModal('modal-success'); app.navigate('cashier'); }
+            },
+
+            receipt: {
+                currentTrx: null,
+                prepareHTML: (trx) => {
+                    app.receipt.currentTrx = trx; const s = state.store;
+                    const dateStr = utils.formatDate(trx.date); const timeStr = utils.formatTime(trx.date);
+                    
+                    const itemsHtml = trx.items.map(item => `
+                        <tr><td colspan="3" class="pb-1 font-bold">${item.name}</td></tr>
+                        <tr><td class="w-8">${item.qty}x</td><td>${utils.formatRp(item.price).replace('Rp','')}</td><td class="text-right">${utils.formatRp(item.price * item.qty).replace('Rp','')}</td></tr>
+                    `).join('');
+                    
+                    let logoHtml = s.logo ? `<img src="${s.logo}" class="h-14 mx-auto mb-2 object-contain" style="filter: grayscale(100%) contrast(1.2); mix-blend-mode: multiply;">` : '';
+                    let discHtml = trx.discountAmt > 0 ? `<div class="flex justify-between"><span class="font-bold">Diskon (${trx.discountPct}%)</span><span class="font-bold text-sm">-${utils.formatRp(trx.discountAmt)}</span></div>` : '';
+                    
+                    let socHtml = '';
+                    if(s.wa) socHtml += `<div class="flex items-center gap-1.5"><svg class="w-3.5 h-3.5 text-black" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.015c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z"></path></svg> <span>${s.wa}</span></div>`;
+                    if(s.ig) socHtml += `<div class="flex items-center gap-1.5"><svg class="w-3.5 h-3.5 text-black" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"></path></svg> <span>${s.ig}</span></div>`;
+                    if(s.fb) socHtml += `<div class="flex items-center gap-1.5"><svg class="w-3.5 h-3.5 text-black" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"></path></svg> <span>${s.fb}</span></div>`;
+
+                    let footerHtml = '';
+                    if (socHtml || s.footerQr) {
+                        footerHtml = `<div class="flex justify-center items-center gap-4 mt-3 pt-3 border-t border-dashed border-gray-400">`;
+                        if (s.footerQr) { footerHtml += `<div class="w-12 h-12 bg-white flex-shrink-0 qr-footer-render"></div>`; }
+                        if (socHtml) { footerHtml += `<div class="flex flex-col items-start gap-1 text-[9px] text-black font-sans font-bold leading-none">${socHtml}</div>`; }
+                        footerHtml += `</div>`;
+                    }
+
+                    const receiptContent = `
+                        <div class="absolute -top-1 left-0 w-full h-2 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxwb2x5Z29uIHBvaW50cz0iMCwwIDgsMCA0LDgiIGZpbGw9IiNlNTVlNTYiLz48L3N2Zz4=')] bg-repeat-x opacity-20"></div>
+                        <div class="text-center mb-4 border-b border-dashed border-gray-400 pb-3 font-sans">
+                            ${logoHtml}
+                            <h2 class="font-bold text-sm mb-1 uppercase leading-tight">${s.name}</h2>
+                            <p class="text-[10px] whitespace-pre-line leading-tight text-gray-800 font-receipt font-bold">${s.address}</p>
+                        </div>
+                        <div class="text-center text-[10px] mb-4 text-gray-800 font-receipt font-bold">
+                            <span>${dateStr} ${timeStr} ${trx.id}</span>
+                        </div>
+                        <div class="border-t border-dashed border-gray-400 pt-3 mb-3"><table class="w-full text-[10px] text-left font-receipt">${itemsHtml}</table></div>
+                        <div class="border-t border-dashed border-gray-400 pt-3 text-[10px] space-y-1 font-receipt">
+                            ${discHtml}
+                            <div class="flex justify-between"><span class="font-bold">Total</span><span class="font-bold text-sm">${utils.formatRp(trx.total)}</span></div>
+                            <div class="flex justify-between"><span>${trx.method === 'CASH' ? 'Tunai' : trx.method}</span><span>${utils.formatRp(trx.cash)}</span></div>
+                            <div class="flex justify-between"><span>Kembali</span><span>${utils.formatRp(trx.change)}</span></div>
+                        </div>
+                        <div class="text-center mt-5 text-[10px] text-gray-800 font-bold font-receipt leading-tight">
+                            <p>${s.footerMsg}</p>
+                        </div>
+                        ${footerHtml}
+                    `;
+                    
+                    document.getElementById('receipt-preview-content').innerHTML = receiptContent;
+                    document.getElementById('print-area').innerHTML = receiptContent;
+
+                    if (s.footerQr && typeof QRCode !== 'undefined') {
+                        setTimeout(() => { document.querySelectorAll('.qr-footer-render').forEach(el => { el.innerHTML = ''; new QRCode(el, { text: s.footerQr, width: 48, height: 48, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.L }); }); }, 50);
+                    }
+                },
+                printLast: () => { document.getElementById('print-area').classList.add('active-print'); setTimeout(() => { window.print(); document.getElementById('print-area').classList.remove('active-print'); }, 300); },
+                printCurrent: () => { document.getElementById('print-area').classList.add('active-print'); setTimeout(() => { window.print(); document.getElementById('print-area').classList.remove('active-print'); }, 300); },
+                downloadLast: () => { if (app.receipt.currentTrx) app.receipt.downloadImage(app.receipt.currentTrx.id); },
+                downloadCurrent: () => { if (app.receipt.currentTrx) app.receipt.downloadImage(app.receipt.currentTrx.id); },
+                downloadImage: (trxId) => {
+                    app.ui.showToast('Menyiapkan gambar...');
+                    const el = document.getElementById('receipt-preview-content');
+                    html2canvas(el, { scale: 2, backgroundColor: '#ffffff' }).then(canvas => { const link = document.createElement('a'); link.download = `Struk-${trxId}.png`; link.href = canvas.toDataURL(); link.click(); });
+                }
+            },
+
+            dashboard: {
+                render: async () => {
+                    const now = new Date();
+                    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+                    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+                    const startOfYear = new Date(now.getFullYear(), 0, 1).getTime();
+                    
+                    let trxCount = state.transactions.length, omzetDay = 0, omzetMonth = 0, omzetYear = 0;
+                    
+                    document.getElementById('dash-date').textContent = now.toLocaleDateString('id-ID', {weekday:'long', day: 'numeric', month: 'long', year: 'numeric'});
+                    document.getElementById('dash-time').textContent = now.toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'});
+
+                    const sortedTrx = [...state.transactions].sort((a,b) => b.date - a.date);
+                    let recentHtml = '', counter = 0;
+
+                    for (const t of sortedTrx) {
+                        if (t.date >= today) omzetDay += t.total;
+                        if (t.date >= startOfMonth) omzetMonth += t.total;
+                        if (t.date >= startOfYear) omzetYear += t.total;
+                        
+                        if (counter < 3) {
+                            recentHtml += `<div onclick="app.history.showDetail('${t.id}')" class="flex justify-between items-center border-b border-border/50 pb-2 last:border-0 last:pb-0 active:scale-[0.98] transition-transform cursor-pointer group"><div class="flex gap-2 items-center"><div class="w-8 h-8 rounded-lg bg-background border border-border flex items-center justify-center text-info group-hover:bg-info/10 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></div><div><div class="font-bold text-xs leading-tight">${t.id}</div><div class="text-[9px] font-medium text-muted mt-0.5">${utils.formatTime(t.date)} • ${t.items.length} item</div></div></div><div class="text-right"><div class="font-black text-sm text-text">${utils.formatRp(t.total)}</div><div class="text-[9px] font-bold text-muted bg-background px-1.5 py-0.5 rounded mt-0.5 inline-block border border-border">${t.method}</div></div></div>`;
+                            counter++;
+                        }
+                    }
+
+                    const lowStockItems = state.products.filter(p => p.stock <= 5).sort((a,b) => a.stock - b.stock);
+                    document.getElementById('dash-low-stock').innerHTML = lowStockItems.length > 0 ? lowStockItems.map(p => `
+                        <div onclick="app.navigate('products'); setTimeout(()=>app.products.showEditModal('${p.id}'), 300)" class="flex justify-between items-center text-sm bg-background p-2.5 rounded-xl border border-border cursor-pointer active:scale-[0.98] hover:bg-surface-hover mb-2 last:mb-0">
+                            <span class="font-bold text-xs truncate flex-1">${p.name}</span>
+                            <span class="font-black px-2 py-1 rounded-md text-[10px] ${p.stock === 0 ? 'bg-danger text-white shadow-sm' : 'bg-danger/10 text-danger'}">Sisa ${p.stock}</span>
+                        </div>
+                    `).join('') : '<div class="text-center font-medium text-muted text-xs py-2 flex items-center justify-center gap-1"><svg class="w-4 h-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> Stok aman terkendali</div>';
+
+                    app.dashboard.animateValue('dash-omzet-day', omzetDay, true); app.dashboard.animateValue('dash-omzet-month', omzetMonth, true); app.dashboard.animateValue('dash-omzet-year', omzetYear, true); app.dashboard.animateValue('dash-trx-total', trxCount, false);
+                    document.getElementById('dash-recent-list').innerHTML = recentHtml || '<div class="text-center text-muted font-medium text-xs py-4">Belum ada transaksi</div>';
+                },
+                animateValue: (id, end, isCurrency) => {
+                    const obj = document.getElementById(id); if (end === 0) { obj.textContent = isCurrency ? 'Rp0' : '0'; return; }
+                    const duration = 1000; let startTimestamp = null;
+                    const step = (timestamp) => {
+                        if (!startTimestamp) startTimestamp = timestamp; const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+                        const current = Math.floor(progress * end); obj.textContent = isCurrency ? utils.formatRp(current) : current;
+                        if (progress < 1) window.requestAnimationFrame(step); else obj.textContent = isCurrency ? utils.formatRp(end) : end;
+                    }; window.requestAnimationFrame(step);
+                }
+            },
+
+            history: {
+                filterMethod: 'ALL', sortOrder: 'NEWEST',
+                load: async () => { state.transactions = await dbOp.getAll('transactions'); },
+                render: () => {
+                    const list = document.getElementById('history-list');
+                    let filtered = [...state.transactions];
+                    if(app.history.filterMethod !== 'ALL') filtered = filtered.filter(t => t.method === app.history.filterMethod);
+                    filtered.sort((a,b) => app.history.sortOrder === 'NEWEST' ? b.date - a.date : a.date - b.date);
+                    
+                    if (filtered.length === 0) { list.innerHTML = `<div class="text-center py-12 text-muted flex flex-col items-center"><div class="p-4 bg-background border border-border rounded-full mb-3"><svg class="w-10 h-10 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></div><p class="font-medium text-sm">Belum ada transaksi</p></div>`; return; }
+                    
+                    list.innerHTML = filtered.map(t => `
+                        <div class="bg-surface p-3.5 rounded-2xl shadow-sm border border-border flex items-center gap-3 transition-colors ${state.selectedHistoryIds.has(t.id) ? 'border-primary bg-primary-light' : ''}">
+                            <input type="checkbox" onchange="app.history.toggleSelect('${t.id}', this.checked)" ${state.selectedHistoryIds.has(t.id) ? 'checked' : ''} class="w-5 h-5 rounded border-border text-primary focus:ring-primary accent-primary ml-1 cursor-pointer">
+                            <div class="flex-1 flex justify-between items-center cursor-pointer active:scale-[0.98] transition-transform" onclick="app.history.showDetail('${t.id}')">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-full bg-success/10 text-success flex items-center justify-center"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg></div>
+                                    <div><div class="font-bold leading-tight text-sm">${t.id}</div><div class="text-[10px] font-bold text-muted mt-0.5">${utils.formatDate(t.date)} ${utils.formatTime(t.date)}</div></div>
+                                </div>
+                                <div class="text-right"><div class="font-black text-text text-sm">${utils.formatRp(t.total)}</div><div class="text-[9px] font-bold text-muted bg-background border border-border px-1.5 py-0.5 rounded-md mt-1 inline-block uppercase">${t.method}</div></div>
+                            </div>
+                        </div>
+                    `).join('');
+                    app.history.updateActionPanel();
+                },
+                toggleSelect: (id, checked) => { checked ? state.selectedHistoryIds.add(id) : state.selectedHistoryIds.delete(id); app.history.updateActionPanel(); },
+                toggleAll: (checkbox) => {
+                    let filtered = [...state.transactions]; if (app.history.filterMethod !== 'ALL') filtered = filtered.filter(t => t.method === app.history.filterMethod);
+                    if (checkbox.checked) filtered.forEach(t => state.selectedHistoryIds.add(t.id)); else state.selectedHistoryIds.clear();
+                    app.history.render();
+                },
+                updateActionPanel: () => {
+                    const count = state.selectedHistoryIds.size; const textEl = document.getElementById('history-select-text'); const actionsEl = document.getElementById('history-actions'); const checkAll = document.getElementById('check-all-history');
+                    if (count > 0) { textEl.textContent = `${count} Terpilih`; textEl.classList.add('text-primary', 'opacity-0', '-translate-x-4'); actionsEl.classList.remove('opacity-0', 'translate-x-8', 'pointer-events-none'); checkAll.checked = true; } 
+                    else { textEl.textContent = 'Pilih Semua'; textEl.classList.remove('text-primary', 'opacity-0', '-translate-x-4'); actionsEl.classList.add('opacity-0', 'translate-x-8', 'pointer-events-none'); checkAll.checked = false; }
+                    document.querySelectorAll('#history-list input[type="checkbox"]').forEach(cb => { const id = cb.getAttribute('onchange').match(/'([^']+)'/)[1]; const container = cb.closest('.bg-surface'); if (state.selectedHistoryIds.has(id)) { cb.checked = true; container.classList.add('border-primary', 'bg-primary-light'); } else { cb.checked = false; container.classList.remove('border-primary', 'bg-primary-light'); } });
+                },
+                confirmDeleteSelected: () => app.ui.confirm(`Hapus ${state.selectedHistoryIds.size} riwayat terpilih?`, async () => { for(const id of state.selectedHistoryIds) await dbOp.delete('transactions', id); state.selectedHistoryIds.clear(); await app.history.load(); app.history.render(); app.dashboard.render(); app.ui.showToast('Riwayat dihapus'); }),
+                showDetail: (id) => { const t = state.transactions.find(x => x.id === id); if(t) { app.receipt.prepareHTML(t); app.ui.openModal('modal-receipt'); } }
+            },
+
+            backup: {
+                confirmResetData: () => app.ui.confirm("PERINGATAN: Semua data Demo, Pengaturan, dan Riwayat Limit akan di-reset ke awal. Lanjutkan?", async () => {
+                    await dbOp.clear('products'); await dbOp.clear('transactions'); await dbOp.clear('settings');
+                    localStorage.removeItem('demo_seeded');
+                    localStorage.removeItem('demo_prod_count');
+                    localStorage.removeItem('demo_trx_count');
+                    localStorage.removeItem('tour_completed');
+                    window.location.reload();
+                })
+            },
+
+            // --- SEED DUMMY DATA ---
+            seedDemoData: async () => {
+                if (localStorage.getItem('demo_seeded')) return;
+                
+                const now = Date.now();
+                const dProducts = [
+                    { id: utils.uuid(), name: 'Kopi Susu Gula Aren', price: 18000, stock: 45, qr: 'PRD-1001', updated: now },
+                    { id: utils.uuid(), name: 'Roti Bakar Coklat Keju', price: 25000, stock: 4, qr: 'PRD-1002', updated: now },
+                    { id: utils.uuid(), name: 'Mie Goreng Spesial', price: 20000, stock: 3, qr: 'PRD-1003', updated: now },
+                    { id: utils.uuid(), name: 'Es Teh Manis', price: 5000, stock: 100, qr: 'PRD-1004', updated: now },
+                    { id: utils.uuid(), name: 'Keripik Bawang', price: 8000, stock: 0, qr: 'PRD-1005', updated: now }
+                ];
+                for(let p of dProducts) await dbOp.put('products', p);
+
+                const dTrx = [
+                    { id: 'TRX-'+now.toString().slice(-6), date: now - 3600000, items: [{...dProducts[0], qty:2}, {...dProducts[3], qty:1}], total: 41000, method: 'QRIS', cash: 41000, change: 0, discountPct: 0, discountAmt: 0 },
+                    { id: 'TRX-'+(now-100).toString().slice(-6), date: now - 86400000, items: [{...dProducts[1], qty:1}], total: 25000, method: 'CASH', cash: 50000, change: 25000, discountPct: 0, discountAmt: 0 },
+                    { id: 'TRX-'+(now-200).toString().slice(-6), date: now - 172800000, items: [{...dProducts[2], qty:3}], total: 60000, method: 'TRANSFER', cash: 60000, change: 0, discountPct: 0, discountAmt: 0 }
+                ];
+                for(let t of dTrx) await dbOp.put('transactions', t);
+
+                localStorage.setItem('demo_seeded', 'true');
+            },
+
+            initData: async () => { 
+                await app.seedDemoData();
+                await app.settings.load(); 
+                await app.products.load(); 
+                await app.history.load(); 
+                
+                app.ui.updateDemoCounters();
+                app.dashboard.render(); 
+                app.navigate('dashboard'); 
+                
+                // Show tour on fresh start
+                setTimeout(() => { app.tour.start(); }, 500);
+            },
+            initEvents: () => {
+                document.getElementById('search-product').addEventListener('input', utils.debounce((e) => app.products.renderList(e.target.value), 300));
+                document.getElementById('pos-search').addEventListener('input', utils.debounce((e) => app.cart.renderPOSGrid(e.target.value), 300));
+                document.getElementById('payment-cash').addEventListener('input', () => app.cart.validatePayment());
+                
+                window.addEventListener('online',  () => { const el = document.getElementById('network-status'); el.innerHTML = '<div class="w-1.5 h-1.5 rounded-full bg-success animate-pulse"></div> ONLINE'; el.className = 'px-3 py-1.5 rounded-full bg-success/10 text-success text-[10px] font-bold flex items-center gap-1.5 transition-all'; });
+                window.addEventListener('offline', () => { const el = document.getElementById('network-status'); el.innerHTML = '<div class="w-1.5 h-1.5 rounded-full bg-danger"></div> OFFLINE'; el.className = 'px-3 py-1.5 rounded-full bg-danger/10 text-danger text-[10px] font-bold flex items-center gap-1.5 transition-all'; });
+                if(navigator.onLine) window.dispatchEvent(new Event('online'));
+            },
+            boot: async () => { try { await dbOp.init(); await app.initData(); app.initEvents(); } catch (e) { app.ui.showToast("Gagal memuat database", "error"); } }
+        };
+
+        document.addEventListener('DOMContentLoaded', app.boot);
+    </script>
+</body>
+</html>
